@@ -5,10 +5,35 @@ namespace PipelineConverter.Configuration;
 /// </summary>
 public class AppSettings
 {
+    public PathsSettings Paths { get; set; } = new();
     public CopilotSettings Copilot { get; set; } = new();
     public ConversionSettings Conversion { get; set; } = new();
     public ValidationSettings Validation { get; set; } = new();
     public LoggingSettings Logging { get; set; } = new();
+}
+
+/// <summary>
+/// Settings for input/output paths.
+/// </summary>
+public class PathsSettings
+{
+    /// <summary>
+    /// Default input directory containing pipeline files to convert.
+    /// Can be overridden by command line -i/--input.
+    /// </summary>
+    public string InputDirectory { get; set; } = string.Empty;
+
+    /// <summary>
+    /// Default output directory for converted workflows.
+    /// Can be overridden by command line -o/--output.
+    /// </summary>
+    public string OutputDirectory { get; set; } = string.Empty;
+
+    /// <summary>
+    /// Filter to specific source type: GitLab, AzureDevOps, Jenkins.
+    /// Leave empty to process all sources. Can be overridden by -s/--source.
+    /// </summary>
+    public string SourceFilter { get; set; } = string.Empty;
 }
 
 /// <summary>

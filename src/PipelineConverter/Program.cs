@@ -18,6 +18,19 @@ configuration.Bind(appSettings);
 // Parse command line arguments
 var arguments = ParseArguments(args);
 
+// Apply config defaults if command line args not provided
+arguments.InputPath ??= string.IsNullOrEmpty(appSettings.Paths.InputDirectory) 
+    ? null 
+    : appSettings.Paths.InputDirectory;
+arguments.OutputPath ??= string.IsNullOrEmpty(appSettings.Paths.OutputDirectory) 
+    ? null 
+    : appSettings.Paths.OutputDirectory;
+arguments.SourceFilter ??= string.IsNullOrEmpty(appSettings.Paths.SourceFilter) 
+    ? null 
+    : Enum.TryParse<PipelineType>(appSettings.Paths.SourceFilter, ignoreCase: true, out var configSource) 
+        ? configSource 
+        : null;
+
 if (arguments.ShowHelp || arguments.InputPath is null || arguments.OutputPath is null)
 {
     ShowHelp();
@@ -97,7 +110,7 @@ Pipeline to GitHub Actions Converter
 
 Usage: PipelineConverter -i <input> -o <output> [options]
 
-Required:
+Required (or set in appsettings.json):
   -i, --input <path>      Directory containing pipeline files to convert
   -o, --output <path>     Output directory for converted workflows
 
@@ -107,9 +120,14 @@ Options:
   -v, --verbose           Enable verbose output
   -h, --help              Show this help message
 
+Configuration:
+  Settings can be defined in appsettings.json including default paths.
+  Command line arguments override configuration file settings.
+
 Examples:
   PipelineConverter -i ./pipelines -o ./converted
   PipelineConverter -i ./ci -o ./output -s GitLab --verbose
+  PipelineConverter                     # Uses paths from appsettings.json
 ");
 }
 
@@ -194,12 +212,12 @@ async Task RunConversionAsync(
     // Initialize Copilot services
     Console.WriteLine("Initializing GitHub Copilot...");
     
-    await using var converter = new CopilotConverterService(settings.Copilot.Model);
+    await using var converter = new CopilotConverterService(settings.Copilot.Model, settings.Copilot.Timeout);
     CopilotValidationAgent? validator = null;
     
     if (!skipValidation)
     {
-        validator = new CopilotValidationAgent(settings.Copilot.Model);
+        validator = new CopilotValidationAgent(settings.Copilot.Model, settings.Copilot.Timeout);
     }
 
     try

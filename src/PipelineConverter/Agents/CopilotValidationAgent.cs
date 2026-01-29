@@ -14,13 +14,15 @@ public class CopilotValidationAgent : IAsyncDisposable
 {
     private readonly CopilotClient _client;
     private readonly string _model;
+    private readonly TimeSpan _timeout;
     private bool _isStarted;
     private readonly List<AIFunction> _tools;
 
-    public CopilotValidationAgent(string model = "gpt-4.1")
+    public CopilotValidationAgent(string model = "gpt-4.1", int timeoutSeconds = 120)
     {
         _client = new CopilotClient();
         _model = model;
+        _timeout = TimeSpan.FromSeconds(timeoutSeconds);
         _tools = CreateValidationTools();
     }
 
@@ -73,7 +75,7 @@ public class CopilotValidationAgent : IAsyncDisposable
                 cancellationToken);
 
             var prompt = BuildValidationPrompt(originalPipeline, generatedWorkflow);
-            var response = await session.SendAndWaitAsync(new MessageOptions { Prompt = prompt });
+            var response = await session.SendAndWaitAsync(new MessageOptions { Prompt = prompt }, _timeout);
             var responseContent = response?.Data?.Content ?? "";
 
             // Parse Copilot's feedback

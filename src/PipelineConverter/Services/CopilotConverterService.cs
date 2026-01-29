@@ -12,13 +12,15 @@ public class CopilotConverterService : IAsyncDisposable
 {
     private readonly CopilotClient _client;
     private readonly string _model;
+    private readonly TimeSpan _timeout;
     private readonly CustomAgentConfig? _customAgent;
     private bool _isStarted;
 
-    public CopilotConverterService(string model = "gpt-4.1", CustomAgentConfig? customAgent = null)
+    public CopilotConverterService(string model = "gpt-4.1", int timeoutSeconds = 120, CustomAgentConfig? customAgent = null)
     {
         _client = new CopilotClient();
         _model = model;
+        _timeout = TimeSpan.FromSeconds(timeoutSeconds);
         _customAgent = customAgent;
     }
 
@@ -26,12 +28,13 @@ public class CopilotConverterService : IAsyncDisposable
     /// Creates a CopilotConverterService with a custom agent loaded from a markdown file.
     /// </summary>
     /// <param name="model">The model to use.</param>
+    /// <param name="timeoutSeconds">Timeout in seconds for API calls.</param>
     /// <param name="agentFilePath">Path to the agent markdown file.</param>
     /// <returns>A configured CopilotConverterService instance.</returns>
-    public static CopilotConverterService WithAgentFromFile(string model, string agentFilePath)
+    public static CopilotConverterService WithAgentFromFile(string model, int timeoutSeconds, string agentFilePath)
     {
         var customAgent = CustomAgentConfigExtensions.FromMarkdownFile(agentFilePath);
-        return new CopilotConverterService(model, customAgent);
+        return new CopilotConverterService(model, timeoutSeconds, customAgent);
     }
 
     /// <summary>
@@ -69,7 +72,7 @@ public class CopilotConverterService : IAsyncDisposable
 
             var prompt = BuildConversionPrompt(pipeline);
             
-            var response = await session.SendAndWaitAsync(new MessageOptions { Prompt = prompt });
+            var response = await session.SendAndWaitAsync(new MessageOptions { Prompt = prompt }, _timeout);
             var responseContent = response?.Data?.Content ?? "";
 
             var workflowYaml = ExtractYamlFromResponse(responseContent);
