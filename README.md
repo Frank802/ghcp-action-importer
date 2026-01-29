@@ -81,6 +81,8 @@ src/PipelineConverter/
 │   └── IPipelineSource.cs          # Interface for pipeline sources
 ├── Agents/
 │   └── CopilotValidationAgent.cs   # Custom validation agent
+├── Configuration/
+│   └── AppSettings.cs              # Configuration models
 ├── Models/
 │   ├── ConversionResult.cs         # Conversion result model
 │   ├── PipelineInfo.cs             # Pipeline metadata
@@ -93,8 +95,38 @@ src/PipelineConverter/
 │   ├── AzureDevOpsPipelineSource.cs
 │   ├── GitLabPipelineSource.cs
 │   └── JenkinsPipelineSource.cs
+├── appsettings.json                # Configuration file
 └── Program.cs                      # CLI entry point
 ```
+
+## Configuration
+
+The application uses `appsettings.json` for configuration. Settings can be customized:
+
+```json
+{
+  "Copilot": {
+    "Model": "gpt-4.1",        // Model to use (gpt-4.1, claude-sonnet-4.5, etc.)
+    "Timeout": 120              // Timeout in seconds
+  },
+  "Conversion": {
+    "CreateWorkflowsSubdirectory": true,   // Create .github/workflows structure
+    "GenerateValidationReports": true,      // Generate .validation.md files
+    "GenerateImprovedWorkflows": true       // Generate .improved.yml files
+  },
+  "Validation": {
+    "CheckSyntax": true,           // Validate YAML syntax
+    "CheckSecurity": true,         // Check for security issues
+    "CheckActionVersions": true,   // Verify action versions are pinned
+    "MaxIssuesInConsole": 5        // Max issues shown in console
+  },
+  "Logging": {
+    "Verbose": false               // Default verbose setting
+  }
+}
+```
+
+Create `appsettings.local.json` for local overrides (ignored by git).
 
 ## Extending with New Sources
 

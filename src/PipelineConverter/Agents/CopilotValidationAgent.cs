@@ -13,12 +13,14 @@ namespace PipelineConverter.Agents;
 public class CopilotValidationAgent : IAsyncDisposable
 {
     private readonly CopilotClient _client;
+    private readonly string _model;
     private bool _isStarted;
     private readonly List<AIFunction> _tools;
 
-    public CopilotValidationAgent()
+    public CopilotValidationAgent(string model = "gpt-4.1")
     {
         _client = new CopilotClient();
+        _model = model;
         _tools = CreateValidationTools();
     }
 
@@ -65,7 +67,7 @@ public class CopilotValidationAgent : IAsyncDisposable
             await using var session = await _client.CreateSessionAsync(
                 new SessionConfig 
                 { 
-                    Model = "gpt-4.1",
+                    Model = _model,
                     Tools = _tools 
                 },
                 cancellationToken);

@@ -99,3 +99,8 @@ converted/
 
 # Sample pipeline files (for testing)
 samples/
+
+# Local settings overrides (keep appsettings.json in repo as template)
+appsettings.local.json
+appsettings.*.json
+!appsettings.json

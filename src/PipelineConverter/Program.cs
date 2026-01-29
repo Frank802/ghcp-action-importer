@@ -1,8 +1,19 @@
-﻿using PipelineConverter.Abstractions;
+﻿using Microsoft.Extensions.Configuration;
+using PipelineConverter.Abstractions;
 using PipelineConverter.Agents;
+using PipelineConverter.Configuration;
 using PipelineConverter.Models;
 using PipelineConverter.Services;
 using PipelineConverter.Sources;
+
+// Load configuration
+var configuration = new ConfigurationBuilder()
+    .SetBasePath(AppContext.BaseDirectory)
+    .AddJsonFile("appsettings.json", optional: true, reloadOnChange: false)
+    .Build();
+
+var appSettings = new AppSettings();
+configuration.Bind(appSettings);
 
 // Parse command line arguments
 var arguments = ParseArguments(args);
@@ -13,12 +24,16 @@ if (arguments.ShowHelp || arguments.InputPath is null || arguments.OutputPath is
     return arguments.ShowHelp ? 0 : 1;
 }
 
+// Command line verbose flag overrides config
+var verbose = arguments.Verbose || appSettings.Logging.Verbose;
+
 await RunConversionAsync(
     new DirectoryInfo(arguments.InputPath),
     new DirectoryInfo(arguments.OutputPath),
     arguments.SourceFilter,
     arguments.SkipValidation,
-    arguments.Verbose,
+    verbose,
+    appSettings,
     CancellationToken.None);
 
 return 0;
@@ -105,6 +120,7 @@ async Task RunConversionAsync(
     PipelineType? sourceFilter,
     bool skipValidation,
     bool verbose,
+    AppSettings settings,
     CancellationToken cancellationToken)
 {
     Console.WriteLine();
@@ -141,7 +157,7 @@ async Task RunConversionAsync(
     };
 
     var scanner = new PipelineScanner(sources);
-    var writer = new WorkflowWriter(output.FullName);
+    var writer = new WorkflowWriter(output.FullName, settings.Conversion.CreateWorkflowsSubdirectory);
 
     // Scan for pipelines
     Console.WriteLine($"Scanning: {input.FullName}");
@@ -178,12 +194,12 @@ async Task RunConversionAsync(
     // Initialize Copilot services
     Console.WriteLine("Initializing GitHub Copilot...");
     
-    await using var converter = new CopilotConverterService();
+    await using var converter = new CopilotConverterService(settings.Copilot.Model);
     CopilotValidationAgent? validator = null;
     
     if (!skipValidation)
     {
-        validator = new CopilotValidationAgent();
+        validator = new CopilotValidationAgent(settings.Copilot.Model);
     }
 
     try
@@ -293,7 +309,7 @@ async Task RunConversionAsync(
 
                 if (verbose && validation.Issues.Count > 0)
                 {
-                    foreach (var issue in validation.Issues.Take(5))
+                    foreach (var issue in validation.Issues.Take(settings.Validation.MaxIssuesInConsole))
                     {
                         var icon = issue.Severity switch
                         {
@@ -303,26 +319,32 @@ async Task RunConversionAsync(
                         };
                         Console.WriteLine($"    {icon} {issue.Message}");
                     }
-                    if (validation.Issues.Count > 5)
+                    if (validation.Issues.Count > settings.Validation.MaxIssuesInConsole)
                     {
-                        Console.WriteLine($"    ... and {validation.Issues.Count - 5} more");
+                        Console.WriteLine($"    ... and {validation.Issues.Count - settings.Validation.MaxIssuesInConsole} more");
                     }
                 }
 
                 // Write validation report
-                var reportPath = await writer.WriteValidationReportAsync(workflowPath, validation, cancellationToken);
-                if (verbose)
+                if (settings.Conversion.GenerateValidationReports)
                 {
-                    Console.WriteLine($"  Report: {Path.GetRelativePath(output.FullName, reportPath)}");
+                    var reportPath = await writer.WriteValidationReportAsync(workflowPath, validation, cancellationToken);
+                    if (verbose)
+                    {
+                        Console.WriteLine($"  Report: {Path.GetRelativePath(output.FullName, reportPath)}");
+                    }
                 }
 
                 // Write improved workflow if available
-                var improvedPath = await writer.WriteImprovedWorkflowAsync(workflowPath, validation, cancellationToken);
-                if (improvedPath is not null)
+                if (settings.Conversion.GenerateImprovedWorkflows)
                 {
-                    Console.ForegroundColor = ConsoleColor.Cyan;
-                    Console.WriteLine($"  Improved: {Path.GetRelativePath(output.FullName, improvedPath)}");
-                    Console.ResetColor();
+                    var improvedPath = await writer.WriteImprovedWorkflowAsync(workflowPath, validation, cancellationToken);
+                    if (improvedPath is not null)
+                    {
+                        Console.ForegroundColor = ConsoleColor.Cyan;
+                        Console.WriteLine($"  Improved: {Path.GetRelativePath(output.FullName, improvedPath)}");
+                        Console.ResetColor();
+                    }
                 }
 
                 if (validation.Suggestions?.Count > 0 && verbose)

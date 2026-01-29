@@ -1,5 +1,6 @@
 using GitHub.Copilot.SDK;
 using PipelineConverter.Abstractions;
+using PipelineConverter.Extensions;
 using PipelineConverter.Models;
 
 namespace PipelineConverter.Services;
@@ -10,11 +11,27 @@ namespace PipelineConverter.Services;
 public class CopilotConverterService : IAsyncDisposable
 {
     private readonly CopilotClient _client;
+    private readonly string _model;
+    private readonly CustomAgentConfig? _customAgent;
     private bool _isStarted;
 
-    public CopilotConverterService()
+    public CopilotConverterService(string model = "gpt-4.1", CustomAgentConfig? customAgent = null)
     {
         _client = new CopilotClient();
+        _model = model;
+        _customAgent = customAgent;
+    }
+
+    /// <summary>
+    /// Creates a CopilotConverterService with a custom agent loaded from a markdown file.
+    /// </summary>
+    /// <param name="model">The model to use.</param>
+    /// <param name="agentFilePath">Path to the agent markdown file.</param>
+    /// <returns>A configured CopilotConverterService instance.</returns>
+    public static CopilotConverterService WithAgentFromFile(string model, string agentFilePath)
+    {
+        var customAgent = CustomAgentConfigExtensions.FromMarkdownFile(agentFilePath);
+        return new CopilotConverterService(model, customAgent);
     }
 
     /// <summary>
@@ -40,7 +57,15 @@ public class CopilotConverterService : IAsyncDisposable
 
         try
         {
-            await using var session = await _client.CreateSessionAsync(new SessionConfig { Model = "gpt-4.1" }, cancellationToken);
+            var sessionConfig = new SessionConfig { Model = _model };
+            
+            // Add custom agent if configured
+            if (_customAgent is not null)
+            {
+                sessionConfig.CustomAgents = [_customAgent];
+            }
+
+            await using var session = await _client.CreateSessionAsync(sessionConfig, cancellationToken);
 
             var prompt = BuildConversionPrompt(pipeline);
             
