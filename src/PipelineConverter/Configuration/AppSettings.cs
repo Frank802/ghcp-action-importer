@@ -50,6 +50,12 @@ public class CopilotSettings
     /// Timeout in seconds for Copilot operations.
     /// </summary>
     public int Timeout { get; set; } = 120;
+
+    /// <summary>
+    /// Maximum number of parallel Copilot sessions for concurrent pipeline processing.
+    /// Each pipeline gets its own session for conversion and validation.
+    /// </summary>
+    public int MaxParallelSessions { get; set; } = 3;
 }
 
 /// <summary>

@@ -79,8 +79,8 @@ public class CopilotValidationAgent : IAsyncDisposable
             var responseContent = response?.Data?.Content ?? "";
 
             // Parse Copilot's feedback
-            var copilotIssues = ParseCopilotValidation(responseContent);
-            issues.AddRange(copilotIssues.Issues);
+            var (_, copilotIssues) = ParseCopilotValidation(responseContent);
+            issues.AddRange(copilotIssues);
 
             var suggestions = ExtractSuggestions(responseContent);
             var improvedWorkflow = ExtractImprovedWorkflow(responseContent);

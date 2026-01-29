@@ -1,6 +1,5 @@
 ﻿using Microsoft.Extensions.Configuration;
 using PipelineConverter.Abstractions;
-using PipelineConverter.Agents;
 using PipelineConverter.Configuration;
 using PipelineConverter.Models;
 using PipelineConverter.Services;
@@ -30,6 +29,12 @@ arguments.SourceFilter ??= string.IsNullOrEmpty(appSettings.Paths.SourceFilter)
     : Enum.TryParse<PipelineType>(appSettings.Paths.SourceFilter, ignoreCase: true, out var configSource) 
         ? configSource 
         : null;
+
+// Apply max sessions override from command line
+if (arguments.MaxSessions.HasValue)
+{
+    appSettings.Copilot.MaxParallelSessions = arguments.MaxSessions.Value;
+}
 
 if (arguments.ShowHelp || arguments.InputPath is null || arguments.OutputPath is null)
 {
@@ -97,6 +102,12 @@ static CommandLineArgs ParseArguments(string[] args)
             case "--help":
                 result.ShowHelp = true;
                 break;
+                
+            case "-m":
+            case "--max-sessions":
+                if (i + 1 < args.Length && int.TryParse(args[++i], out var maxSessions))
+                    result.MaxSessions = maxSessions;
+                break;
         }
     }
     
@@ -116,6 +127,7 @@ Required (or set in appsettings.json):
 
 Options:
   -s, --source <type>     Filter to specific source (GitLab, AzureDevOps, Jenkins)
+  -m, --max-sessions <n>  Maximum parallel Copilot sessions (default: 3)
   --skip-validation       Skip validation step after conversion
   -v, --verbose           Enable verbose output
   -h, --help              Show this help message
@@ -123,6 +135,7 @@ Options:
 Configuration:
   Settings can be defined in appsettings.json including default paths.
   Command line arguments override configuration file settings.
+  MaxParallelSessions controls concurrent pipeline processing (default: 3).
 
 Examples:
   PipelineConverter -i ./pipelines -o ./converted
@@ -131,7 +144,7 @@ Examples:
 ");
 }
 
-// Main conversion logic
+// Main conversion logic using parallel sessions
 async Task RunConversionAsync(
     DirectoryInfo input,
     DirectoryInfo output,
@@ -209,24 +222,14 @@ async Task RunConversionAsync(
     }
     Console.WriteLine();
 
-    // Initialize Copilot services
-    Console.WriteLine("Initializing GitHub Copilot...");
+    // Initialize parallel processor
+    Console.WriteLine($"Initializing GitHub Copilot (max {settings.Copilot.MaxParallelSessions} parallel sessions)...");
     
-    await using var converter = new CopilotConverterService(settings.Copilot.Model, settings.Copilot.Timeout);
-    CopilotValidationAgent? validator = null;
-    
-    if (!skipValidation)
-    {
-        validator = new CopilotValidationAgent(settings.Copilot.Model, settings.Copilot.Timeout);
-    }
+    await using var processor = new ParallelPipelineProcessor(settings);
 
     try
     {
-        await converter.StartAsync(cancellationToken);
-        if (validator is not null)
-        {
-            await validator.StartAsync(cancellationToken);
-        }
+        await processor.StartAsync(cancellationToken);
         Console.ForegroundColor = ConsoleColor.Green;
         Console.WriteLine("Copilot connected successfully.");
         Console.ResetColor();
@@ -245,89 +248,116 @@ async Task RunConversionAsync(
     }
 
     Console.WriteLine();
+    Console.WriteLine($"Processing {pipelines.Count} pipeline(s) in parallel...");
+    Console.WriteLine();
 
-    // Process each pipeline
+    // Track progress with thread-safe console output
+    var progressLock = new object();
+    var pipelineStatus = new Dictionary<string, string>();
+    
+    var progress = new Progress<ProcessingProgress>(p =>
+    {
+        lock (progressLock)
+        {
+            var name = Path.GetFileName(p.Pipeline.FilePath);
+            var status = p.Phase switch
+            {
+                ProcessingPhase.Starting => "⏳ Starting...",
+                ProcessingPhase.Converting => "🔄 Converting...",
+                ProcessingPhase.ConversionComplete => "✅ Converted",
+                ProcessingPhase.Validating => "🔍 Validating...",
+                ProcessingPhase.ValidationComplete => "✅ Validated",
+                ProcessingPhase.Writing => "💾 Writing...",
+                ProcessingPhase.Complete => "✅ Complete",
+                ProcessingPhase.Failed => $"❌ Failed: {p.Message}",
+                _ => "..."
+            };
+            
+            pipelineStatus[name] = status;
+
+            if (verbose)
+            {
+                Console.WriteLine($"  [{name}] {status}");
+            }
+        }
+    });
+
+    var startTime = DateTime.UtcNow;
+    
+    // Process all pipelines in parallel
+    var results = await processor.ProcessAsync(
+        pipelines,
+        writer,
+        skipValidation,
+        progress,
+        cancellationToken);
+
+    var totalDuration = DateTime.UtcNow - startTime;
+
+    // Display results
+    Console.WriteLine();
+    Console.WriteLine(new string('═', 60));
+    Console.WriteLine("RESULTS");
+    Console.WriteLine(new string('═', 60));
+
     var successCount = 0;
     var failCount = 0;
 
-    foreach (var pipeline in pipelines)
+    foreach (var result in results)
     {
+        var name = Path.GetFileName(result.Pipeline.FilePath);
+        Console.WriteLine();
         Console.WriteLine(new string('─', 60));
-        Console.WriteLine($"Converting: {Path.GetFileName(pipeline.FilePath)}");
-        Console.WriteLine($"  Source: {pipeline.SourceType}");
+        Console.WriteLine($"Pipeline: {name}");
+        Console.WriteLine($"  Source: {result.Pipeline.SourceType}");
+        Console.WriteLine($"  Duration: {result.Duration.TotalSeconds:F1}s");
 
-        if (verbose)
+        if (result.Conversion.IsSuccess)
         {
-            Console.WriteLine($"  Path: {pipeline.FilePath}");
-        }
-
-        try
-        {
-            // Convert
-            Console.Write("  Converting... ");
-            var result = await converter.ConvertAsync(pipeline, cancellationToken);
-
-            if (!result.IsSuccess)
-            {
-                Console.ForegroundColor = ConsoleColor.Red;
-                Console.WriteLine("FAILED");
-                Console.WriteLine($"  Error: {result.ErrorMessage}");
-                Console.ResetColor();
-                failCount++;
-                continue;
-            }
-
             Console.ForegroundColor = ConsoleColor.Green;
-            Console.WriteLine("OK");
+            Console.WriteLine("  Conversion: OK");
             Console.ResetColor();
 
-            // Show notes if any and verbose
-            if (verbose && result.Notes?.Count > 0)
+            if (result.WorkflowPath is not null)
+            {
+                Console.WriteLine($"  Output: {Path.GetRelativePath(output.FullName, result.WorkflowPath)}");
+            }
+
+            if (verbose && result.Conversion.Notes?.Count > 0)
             {
                 Console.WriteLine("  Notes:");
-                foreach (var note in result.Notes)
+                foreach (var note in result.Conversion.Notes.Take(5))
                 {
                     Console.WriteLine($"    - {note}");
                 }
             }
 
-            // Write the workflow
-            var workflowPath = await writer.WriteAsync(result, pipeline, cancellationToken);
-            Console.WriteLine($"  Output: {Path.GetRelativePath(output.FullName, workflowPath)}");
-
-            // Validate if not skipped
-            if (validator is not null)
+            if (result.Validation is not null)
             {
-                Console.Write("  Validating... ");
-                var validation = await validator.ValidateAsync(
-                    pipeline.OriginalContent, 
-                    result.WorkflowYaml!, 
-                    cancellationToken);
+                var errorCount = result.Validation.Issues.Count(i => i.Severity == ValidationSeverity.Error);
+                var warnCount = result.Validation.Issues.Count(i => i.Severity == ValidationSeverity.Warning);
 
-                if (validation.IsValid)
+                if (result.Validation.IsValid)
                 {
                     Console.ForegroundColor = ConsoleColor.Green;
-                    Console.WriteLine("PASSED");
+                    Console.WriteLine("  Validation: PASSED");
                     Console.ResetColor();
                 }
                 else
                 {
                     Console.ForegroundColor = ConsoleColor.Yellow;
-                    Console.WriteLine("ISSUES FOUND");
+                    Console.WriteLine("  Validation: ISSUES FOUND");
                     Console.ResetColor();
                 }
-
-                var errorCount = validation.Issues.Count(i => i.Severity == ValidationSeverity.Error);
-                var warnCount = validation.Issues.Count(i => i.Severity == ValidationSeverity.Warning);
 
                 if (errorCount > 0 || warnCount > 0)
                 {
                     Console.WriteLine($"  Issues: {errorCount} error(s), {warnCount} warning(s)");
                 }
 
-                if (verbose && validation.Issues.Count > 0)
+                if (verbose && result.Validation.Issues.Count > 0)
                 {
-                    foreach (var issue in validation.Issues.Take(settings.Validation.MaxIssuesInConsole))
+                    foreach (var issue in result.Validation.Issues.Take(settings.Validation.MaxIssuesInConsole))
                     {
                         var icon = issue.Severity switch
                         {
@@ -337,38 +367,24 @@ async Task RunConversionAsync(
                         };
                         Console.WriteLine($"    {icon} {issue.Message}");
                     }
-                    if (validation.Issues.Count > settings.Validation.MaxIssuesInConsole)
-                    {
-                        Console.WriteLine($"    ... and {validation.Issues.Count - settings.Validation.MaxIssuesInConsole} more");
-                    }
                 }
 
-                // Write validation report
-                if (settings.Conversion.GenerateValidationReports)
+                if (result.ValidationReportPath is not null && verbose)
                 {
-                    var reportPath = await writer.WriteValidationReportAsync(workflowPath, validation, cancellationToken);
-                    if (verbose)
-                    {
-                        Console.WriteLine($"  Report: {Path.GetRelativePath(output.FullName, reportPath)}");
-                    }
+                    Console.WriteLine($"  Report: {Path.GetRelativePath(output.FullName, result.ValidationReportPath)}");
                 }
 
-                // Write improved workflow if available
-                if (settings.Conversion.GenerateImprovedWorkflows)
+                if (result.ImprovedWorkflowPath is not null)
                 {
-                    var improvedPath = await writer.WriteImprovedWorkflowAsync(workflowPath, validation, cancellationToken);
-                    if (improvedPath is not null)
-                    {
-                        Console.ForegroundColor = ConsoleColor.Cyan;
-                        Console.WriteLine($"  Improved: {Path.GetRelativePath(output.FullName, improvedPath)}");
-                        Console.ResetColor();
-                    }
+                    Console.ForegroundColor = ConsoleColor.Cyan;
+                    Console.WriteLine($"  Improved: {Path.GetRelativePath(output.FullName, result.ImprovedWorkflowPath)}");
+                    Console.ResetColor();
                 }
 
-                if (validation.Suggestions?.Count > 0 && verbose)
+                if (verbose && result.Validation.Suggestions?.Count > 0)
                 {
                     Console.WriteLine("  Suggestions:");
-                    foreach (var suggestion in validation.Suggestions.Take(3))
+                    foreach (var suggestion in result.Validation.Suggestions.Take(3))
                     {
                         Console.WriteLine($"    💡 {suggestion}");
                     }
@@ -377,32 +393,20 @@ async Task RunConversionAsync(
 
             successCount++;
         }
-        catch (OperationCanceledException)
-        {
-            Console.ForegroundColor = ConsoleColor.Yellow;
-            Console.WriteLine("Cancelled.");
-            Console.ResetColor();
-            break;
-        }
-        catch (Exception ex)
+        else
         {
             Console.ForegroundColor = ConsoleColor.Red;
-            Console.WriteLine($"Error: {ex.Message}");
+            Console.WriteLine($"  Conversion: FAILED");
+            Console.WriteLine($"  Error: {result.Conversion.ErrorMessage}");
             Console.ResetColor();
-            
-            if (verbose)
+
+            if (verbose && result.Error is not null)
             {
-                Console.WriteLine($"  {ex.StackTrace}");
+                Console.WriteLine($"  Stack: {result.Error.StackTrace}");
             }
-            
+
             failCount++;
         }
-    }
-
-    // Dispose validator if created
-    if (validator is not null)
-    {
-        await validator.DisposeAsync();
     }
 
     // Summary
@@ -421,6 +425,8 @@ async Task RunConversionAsync(
         Console.ResetColor();
     }
 
+    Console.WriteLine($"  Total time: {totalDuration.TotalSeconds:F1}s");
+    Console.WriteLine($"  Parallel sessions: {settings.Copilot.MaxParallelSessions}");
     Console.WriteLine();
     Console.WriteLine($"Output directory: {writer.WorkflowsDirectory}");
 }
@@ -431,6 +437,7 @@ class CommandLineArgs
     public string? InputPath { get; set; }
     public string? OutputPath { get; set; }
     public PipelineType? SourceFilter { get; set; }
+    public int? MaxSessions { get; set; }
     public bool SkipValidation { get; set; }
     public bool Verbose { get; set; }
     public bool ShowHelp { get; set; }

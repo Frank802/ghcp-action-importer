@@ -50,6 +50,7 @@ dotnet run -- -i ./ci -o ./output --skip-validation
 | `--input` | `-i` | **Required.** Directory containing pipeline files to convert |
 | `--output` | `-o` | **Required.** Output directory for converted workflows |
 | `--source` | `-s` | Filter to specific source type: `GitLab`, `AzureDevOps`, `Jenkins` |
+| `--max-sessions` | `-m` | Maximum parallel Copilot sessions (default: 3) |
 | `--skip-validation` | | Skip the validation step after conversion |
 | `--verbose` | `-v` | Enable verbose output |
 | `--help` | `-h` | Show help message |
@@ -99,7 +100,8 @@ ghcp-action-importer/
 │   │   ├── PipelineInfo.cs             # Pipeline metadata
 │   │   └── ValidationResult.cs         # Validation result model
 │   ├── Services/
-│   │   ├── CopilotConverterService.cs  # AI conversion service
+│   │   ├── CopilotConverterService.cs  # AI conversion service (single session)
+│   │   ├── ParallelPipelineProcessor.cs # Parallel processing with multiple sessions
 │   │   ├── PipelineScanner.cs          # Pipeline file discovery
 │   │   └── WorkflowWriter.cs           # Output writer
 │   ├── Sources/
@@ -124,7 +126,8 @@ The application uses `appsettings.json` for configuration. Settings can be custo
   },
   "Copilot": {
     "Model": "gpt-4.1",            // Model to use (gpt-4.1, claude-sonnet-4.5, etc.)
-    "Timeout": 120                 // Timeout in seconds
+    "Timeout": 120,                // Timeout in seconds per operation
+    "MaxParallelSessions": 3       // Number of concurrent Copilot sessions
   },
   "Conversion": {
     "CreateWorkflowsSubdirectory": true,   // Create .github/workflows structure
@@ -142,6 +145,13 @@ The application uses `appsettings.json` for configuration. Settings can be custo
   }
 }
 ```
+
+### Parallel Processing
+
+The converter processes multiple pipelines concurrently using independent Copilot sessions:
+- Each pipeline gets its own session for both conversion and validation
+- `MaxParallelSessions` controls concurrency (default: 3)
+- Validation runs in the same session as conversion, maintaining context for better results
 
 When `Paths.InputDirectory` and `Paths.OutputDirectory` are set, you can run the tool without arguments:
 ```bash
