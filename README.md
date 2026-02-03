@@ -1,5 +1,8 @@
 # Pipeline to GitHub Actions Converter
 
+> [!WARNING]
+> This project is experimental and under active development. Features may change without notice and the generated workflows should be reviewed carefully before use in production.
+
 A .NET 10 console application that converts CI/CD pipelines from GitLab, Azure DevOps, and Jenkins to GitHub Actions using the [GitHub Copilot SDK](https://github.com/github/copilot-sdk).
 
 ## Features
@@ -88,7 +91,6 @@ ghcp-action-importer/
 │   ├── Abstractions/
 │   │   └── IPipelineSource.cs          # Interface for pipeline sources
 │   ├── Agents/
-│   │   ├── CopilotValidationAgent.cs   # Custom validation agent
 │   │   ├── pipeline-converter.md       # Converter agent definition
 │   │   └── workflow-validator.md       # Validator agent definition
 │   ├── Configuration/
@@ -101,6 +103,7 @@ ghcp-action-importer/
 │   │   └── ValidationResult.cs         # Validation result model
 │   ├── Services/
 │   │   ├── CopilotConverterService.cs  # AI conversion service (single session)
+│   │   ├── CopilotValidationService.cs # AI validation service
 │   │   ├── ParallelPipelineProcessor.cs # Parallel processing with multiple sessions
 │   │   ├── PipelineScanner.cs          # Pipeline file discovery
 │   │   └── WorkflowWriter.cs           # Output writer

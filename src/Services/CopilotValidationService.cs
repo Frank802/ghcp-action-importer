@@ -5,12 +5,12 @@ using PipelineConverter.Models;
 using YamlDotNet.Core;
 using YamlDotNet.Serialization;
 
-namespace PipelineConverter.Agents;
+namespace PipelineConverter.Services;
 
 /// <summary>
-/// Custom Copilot agent specialized in validating GitHub Actions workflows.
+/// Service that uses GitHub Copilot SDK to validate GitHub Actions workflows.
 /// </summary>
-public class CopilotValidationAgent : IAsyncDisposable
+public class CopilotValidationService : IAsyncDisposable
 {
     private readonly CopilotClient _client;
     private readonly string _model;
@@ -18,7 +18,7 @@ public class CopilotValidationAgent : IAsyncDisposable
     private bool _isStarted;
     private readonly List<AIFunction> _tools;
 
-    public CopilotValidationAgent(string model = "gpt-4.1", int timeoutSeconds = 120)
+    public CopilotValidationService(string model = "gpt-4.1", int timeoutSeconds = 120)
     {
         _client = new CopilotClient();
         _model = model;
