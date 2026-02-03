@@ -9,21 +9,40 @@ namespace PipelineConverter.Services;
 
 /// <summary>
 /// Service that uses GitHub Copilot SDK to validate GitHub Actions workflows.
+/// Can be used standalone or within an existing Copilot session.
 /// </summary>
 public class CopilotValidationService : IAsyncDisposable
 {
-    private readonly CopilotClient _client;
+    private readonly CopilotClient? _client;
     private readonly string _model;
     private readonly TimeSpan _timeout;
     private bool _isStarted;
     private readonly List<AIFunction> _tools;
+    private readonly bool _ownsClient;
 
+    /// <summary>
+    /// Creates a standalone validation service with its own Copilot client.
+    /// </summary>
     public CopilotValidationService(string model = "gpt-4.1", int timeoutSeconds = 120)
     {
         _client = new CopilotClient();
         _model = model;
         _timeout = TimeSpan.FromSeconds(timeoutSeconds);
         _tools = CreateValidationTools();
+        _ownsClient = true;
+    }
+
+    /// <summary>
+    /// Creates a validation service that uses an external client (for session reuse).
+    /// </summary>
+    public CopilotValidationService(TimeSpan timeout)
+    {
+        _client = null;
+        _model = string.Empty;
+        _timeout = timeout;
+        _tools = CreateValidationTools();
+        _ownsClient = false;
+        _isStarted = true; // External client is assumed to be started
     }
 
     /// <summary>
@@ -32,19 +51,25 @@ public class CopilotValidationService : IAsyncDisposable
     public async Task StartAsync(CancellationToken cancellationToken = default)
     {
         if (_isStarted) return;
+        if (_client == null) return;
         
         await _client.StartAsync(cancellationToken);
         _isStarted = true;
     }
 
     /// <summary>
-    /// Validates a converted GitHub Actions workflow.
+    /// Validates a converted GitHub Actions workflow using a new session.
     /// </summary>
     public async Task<ValidationResult> ValidateAsync(
         string originalPipeline,
         string generatedWorkflow,
         CancellationToken cancellationToken = default)
     {
+        if (_client == null)
+        {
+            throw new InvalidOperationException("Standalone validation requires a CopilotClient. Use ValidateInSessionAsync for session-based validation.");
+        }
+
         if (!_isStarted)
         {
             await StartAsync(cancellationToken);
@@ -77,6 +102,67 @@ public class CopilotValidationService : IAsyncDisposable
             var prompt = BuildValidationPrompt(originalPipeline, generatedWorkflow);
             var response = await session.SendAndWaitAsync(new MessageOptions { Prompt = prompt }, _timeout);
             var responseContent = response?.Data?.Content ?? "";
+
+            // Parse Copilot's feedback
+            var (_, copilotIssues) = ParseCopilotValidation(responseContent);
+            issues.AddRange(copilotIssues);
+
+            var suggestions = ExtractSuggestions(responseContent);
+            var improvedWorkflow = ExtractImprovedWorkflow(responseContent);
+
+            return new ValidationResult
+            {
+                IsValid = !issues.Any(i => i.Severity == ValidationSeverity.Error),
+                Issues = issues,
+                Suggestions = suggestions,
+                ImprovedWorkflow = improvedWorkflow
+            };
+        }
+        catch (Exception ex)
+        {
+            issues.Add(new ValidationIssue
+            {
+                Severity = ValidationSeverity.Warning,
+                Message = $"Could not complete AI validation: {ex.Message}"
+            });
+
+            return new ValidationResult
+            {
+                IsValid = !issues.Any(i => i.Severity == ValidationSeverity.Error),
+                Issues = issues
+            };
+        }
+    }
+
+    /// <summary>
+    /// Validates a converted GitHub Actions workflow within an existing session.
+    /// This maintains conversation context from the conversion step.
+    /// </summary>
+    public async Task<ValidationResult> ValidateInSessionAsync(
+        dynamic session,
+        string originalPipeline,
+        string generatedWorkflow,
+        CancellationToken cancellationToken = default)
+    {
+        var issues = new List<ValidationIssue>();
+
+        // First, perform local syntax validation
+        var syntaxResult = ValidateYamlSyntax(generatedWorkflow);
+        if (!syntaxResult.IsValid)
+        {
+            issues.AddRange(syntaxResult.Issues);
+        }
+
+        // Check for common GitHub Actions structure issues
+        var structureIssues = ValidateWorkflowStructure(generatedWorkflow);
+        issues.AddRange(structureIssues);
+
+        try
+        {
+            // Use existing session for semantic validation (maintains context from conversion)
+            var prompt = BuildValidationPrompt(originalPipeline, generatedWorkflow);
+            var response = await session.SendAndWaitAsync(new MessageOptions { Prompt = prompt }, _timeout);
+            string responseContent = (string)(response?.Data?.Content ?? "");
 
             // Parse Copilot's feedback
             var (_, copilotIssues) = ParseCopilotValidation(responseContent);
@@ -420,7 +506,7 @@ public class CopilotValidationService : IAsyncDisposable
 
     public async ValueTask DisposeAsync()
     {
-        if (_isStarted)
+        if (_ownsClient && _isStarted && _client != null)
         {
             await _client.DisposeAsync();
         }

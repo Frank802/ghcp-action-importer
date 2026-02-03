@@ -7,21 +7,40 @@ namespace PipelineConverter.Services;
 
 /// <summary>
 /// Service that uses GitHub Copilot SDK to convert pipelines to GitHub Actions.
+/// Can be used standalone or within an existing Copilot session.
 /// </summary>
 public class CopilotConverterService : IAsyncDisposable
 {
-    private readonly CopilotClient _client;
+    private readonly CopilotClient? _client;
     private readonly string _model;
     private readonly TimeSpan _timeout;
     private readonly CustomAgentConfig? _customAgent;
     private bool _isStarted;
+    private readonly bool _ownsClient;
 
+    /// <summary>
+    /// Creates a standalone converter service with its own Copilot client.
+    /// </summary>
     public CopilotConverterService(string model = "gpt-4.1", int timeoutSeconds = 120, CustomAgentConfig? customAgent = null)
     {
         _client = new CopilotClient();
         _model = model;
         _timeout = TimeSpan.FromSeconds(timeoutSeconds);
         _customAgent = customAgent;
+        _ownsClient = true;
+    }
+
+    /// <summary>
+    /// Creates a converter service that uses an external client (for session reuse).
+    /// </summary>
+    public CopilotConverterService(TimeSpan timeout, CustomAgentConfig? customAgent = null)
+    {
+        _client = null;
+        _model = string.Empty;
+        _timeout = timeout;
+        _customAgent = customAgent;
+        _ownsClient = false;
+        _isStarted = true; // External client is assumed to be started
     }
 
     /// <summary>
@@ -43,16 +62,22 @@ public class CopilotConverterService : IAsyncDisposable
     public async Task StartAsync(CancellationToken cancellationToken = default)
     {
         if (_isStarted) return;
+        if (_client == null) return;
         
         await _client.StartAsync(cancellationToken);
         _isStarted = true;
     }
 
     /// <summary>
-    /// Converts a pipeline to GitHub Actions workflow using Copilot.
+    /// Converts a pipeline to GitHub Actions workflow using Copilot (creates new session).
     /// </summary>
     public async Task<ConversionResult> ConvertAsync(PipelineInfo pipeline, CancellationToken cancellationToken = default)
     {
+        if (_client == null)
+        {
+            throw new InvalidOperationException("Standalone conversion requires a CopilotClient. Use ConvertInSessionAsync for session-based conversion.");
+        }
+
         if (!_isStarted)
         {
             await StartAsync(cancellationToken);
@@ -74,6 +99,39 @@ public class CopilotConverterService : IAsyncDisposable
             
             var response = await session.SendAndWaitAsync(new MessageOptions { Prompt = prompt }, _timeout);
             var responseContent = response?.Data?.Content ?? "";
+
+            var workflowYaml = ExtractYamlFromResponse(responseContent);
+            
+            if (string.IsNullOrWhiteSpace(workflowYaml))
+            {
+                return ConversionResult.Failed("Failed to extract valid GitHub Actions workflow from response.");
+            }
+
+            var suggestedFileName = GenerateFileName(pipeline);
+            var notes = ExtractNotesFromResponse(responseContent);
+
+            return ConversionResult.Success(workflowYaml, suggestedFileName, notes);
+        }
+        catch (Exception ex)
+        {
+            return ConversionResult.Failed($"Conversion failed: {ex.Message}");
+        }
+    }
+
+    /// <summary>
+    /// Converts a pipeline to GitHub Actions workflow within an existing session.
+    /// This allows the session to be reused for subsequent validation.
+    /// </summary>
+    public async Task<ConversionResult> ConvertInSessionAsync(
+        dynamic session,
+        PipelineInfo pipeline,
+        CancellationToken cancellationToken = default)
+    {
+        try
+        {
+            var prompt = BuildConversionPrompt(pipeline);
+            var response = await session.SendAndWaitAsync(new MessageOptions { Prompt = prompt }, _timeout);
+            string responseContent = (string)(response?.Data?.Content ?? "");
 
             var workflowYaml = ExtractYamlFromResponse(responseContent);
             
@@ -229,7 +287,7 @@ public class CopilotConverterService : IAsyncDisposable
 
     public async ValueTask DisposeAsync()
     {
-        if (_isStarted)
+        if (_ownsClient && _isStarted && _client != null)
         {
             await _client.DisposeAsync();
         }

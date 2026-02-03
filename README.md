@@ -102,9 +102,9 @@ ghcp-action-importer/
 │   │   ├── PipelineInfo.cs             # Pipeline metadata
 │   │   └── ValidationResult.cs         # Validation result model
 │   ├── Services/
-│   │   ├── CopilotConverterService.cs  # AI conversion service (single session)
-│   │   ├── CopilotValidationService.cs # AI validation service
-│   │   ├── ParallelPipelineProcessor.cs # Parallel processing with multiple sessions
+│   │   ├── CopilotConverterService.cs  # AI conversion service (standalone or session-based)
+│   │   ├── CopilotValidationService.cs # AI validation service (standalone or session-based)
+│   │   ├── ParallelPipelineProcessor.cs # Parallel processing orchestrator
 │   │   ├── PipelineScanner.cs          # Pipeline file discovery
 │   │   └── WorkflowWriter.cs           # Output writer
 │   ├── Sources/
