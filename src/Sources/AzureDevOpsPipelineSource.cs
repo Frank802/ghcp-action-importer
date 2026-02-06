@@ -57,8 +57,16 @@ public sealed class AzureDevOpsPipelineSource : IPipelineSource
     private static bool ContainsAdoKeywords(string content)
     {
         // ADO-specific keywords that distinguish it from other YAML files
-        return content.Contains("trigger:") && 
-               (content.Contains("pool:") || content.Contains("vmImage:") || content.Contains("stages:"));
+        // Require trigger: AND at least one ADO-exclusive keyword to reduce false positives
+        if (!content.Contains("trigger:"))
+            return false;
+        
+        // Check for ADO-exclusive keywords that GitLab/Jenkins don't use
+        return content.Contains("vmImage:") ||      // Azure-hosted agent pools
+               content.Contains("task:") ||          // Azure DevOps tasks (vs GitHub actions)
+               content.Contains("- template:") ||    // Azure DevOps templates
+               content.Contains("resources:\n  pipelines:") ||  // Pipeline resources
+               content.Contains("resources:\n  repositories:"); // Repository resources
     }
 
     private static string? ExtractPipelineName(string content)

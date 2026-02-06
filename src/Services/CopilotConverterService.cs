@@ -171,7 +171,9 @@ public sealed class CopilotConverterService : CopilotServiceBase
 
         if (startIndex == -1)
         {
-            // Try to extract without code blocks - look for 'name:' or 'on:' at start of line
+            // Fallback: Extract YAML without code fences
+            // This is a heuristic approach for malformed responses where the model didn't wrap YAML in code blocks.
+            // Look for lines starting with typical workflow keys (name:, on:) to detect the start.
             var lines = response.Split('\n');
             var yamlLines = new List<string>();
             var inYaml = false;
@@ -185,13 +187,32 @@ public sealed class CopilotConverterService : CopilotServiceBase
                 
                 if (inYaml)
                 {
-                    if (string.IsNullOrWhiteSpace(line) && yamlLines.Count > 0 && 
-                        !yamlLines[^1].TrimEnd().EndsWith(":"))
+                    // Heuristic: Continue collecting lines as long as they look like YAML.
+                    // Stop when we encounter a line that looks like prose (non-indented, non-key-value, non-comment).
+                    var trimmed = line.TrimStart();
+                    
+                    // Empty lines are allowed in YAML (especially between sections)
+                    if (string.IsNullOrWhiteSpace(line))
                     {
-                        // Might be end of YAML
+                        yamlLines.Add(line);
                         continue;
                     }
-                    yamlLines.Add(line);
+                    
+                    // Lines that look like YAML: keys, lists, comments, or indented content
+                    if (trimmed.Contains(':') || 
+                        trimmed.StartsWith('-') || 
+                        trimmed.StartsWith('#') || 
+                        line.StartsWith(" ") || 
+                        line.StartsWith("\t"))
+                    {
+                        yamlLines.Add(line);
+                    }
+                    else if (yamlLines.Count > 0)
+                    {
+                        // We've hit a line that doesn't look like YAML after collecting some YAML.
+                        // This is likely the end of the YAML block.
+                        break;
+                    }
                 }
             }
 

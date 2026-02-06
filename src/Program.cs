@@ -187,7 +187,17 @@ async Task RunConversionAsync(
         new JenkinsPipelineSource()
     };
 
-    var scanner = new PipelineScanner(sources);
+    // Create scanner with optional verbose logging for skipped files
+    Action<string, Exception>? onFileSkipped = verbose
+        ? (filePath, ex) =>
+        {
+            Console.ForegroundColor = ConsoleColor.Yellow;
+            Console.WriteLine($"  Skipped: {Path.GetFileName(filePath)} - {ex.Message}");
+            Console.ResetColor();
+        }
+        : null;
+
+    var scanner = new PipelineScanner(sources.ToList(), onFileSkipped);
     var writer = new WorkflowWriter(output.FullName, settings.Conversion.CreateWorkflowsSubdirectory);
 
     // Scan for pipelines

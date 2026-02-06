@@ -306,33 +306,90 @@ public sealed class CopilotValidationService : CopilotServiceBase
     {
         var issues = new List<ValidationIssue>();
 
-        // Check for required top-level keys
-        if (!yaml.Contains("on:") && !yaml.Contains("on :"))
+        // Try to parse YAML and check top-level keys properly
+        try
         {
-            issues.Add(new ValidationIssue
+            var deserializer = new DeserializerBuilder()
+                .IgnoreUnmatchedProperties()
+                .Build();
+            
+            var workflow = deserializer.Deserialize<Dictionary<object, object>>(yaml);
+            
+            if (workflow == null || workflow.Count == 0)
             {
-                Severity = ValidationSeverity.Error,
-                Message = "Workflow missing required 'on:' trigger definition"
-            });
-        }
+                issues.Add(new ValidationIssue
+                {
+                    Severity = ValidationSeverity.Error,
+                    Message = "Workflow YAML is empty or invalid"
+                });
+                return issues;
+            }
 
-        if (!yaml.Contains("jobs:") && !yaml.Contains("jobs :"))
-        {
-            issues.Add(new ValidationIssue
+            // Check for required top-level keys
+            if (!workflow.ContainsKey("on"))
             {
-                Severity = ValidationSeverity.Error,
-                Message = "Workflow missing required 'jobs:' section"
-            });
-        }
+                issues.Add(new ValidationIssue
+                {
+                    Severity = ValidationSeverity.Error,
+                    Message = "Workflow missing required 'on:' trigger definition"
+                });
+            }
 
-        // Check for runs-on in jobs
-        if (yaml.Contains("jobs:") && !yaml.Contains("runs-on:"))
-        {
-            issues.Add(new ValidationIssue
+            if (!workflow.ContainsKey("jobs"))
             {
-                Severity = ValidationSeverity.Warning,
-                Message = "Jobs should specify 'runs-on:' to define the runner"
-            });
+                issues.Add(new ValidationIssue
+                {
+                    Severity = ValidationSeverity.Error,
+                    Message = "Workflow missing required 'jobs:' section"
+                });
+            }
+            
+            // Check for runs-on in jobs
+            if (workflow.ContainsKey("jobs") && workflow["jobs"] is Dictionary<object, object> jobs)
+            {
+                var hasRunsOn = jobs.Values
+                    .OfType<Dictionary<object, object>>()
+                    .Any(job => job.ContainsKey("runs-on"));
+                
+                if (!hasRunsOn)
+                {
+                    issues.Add(new ValidationIssue
+                    {
+                        Severity = ValidationSeverity.Warning,
+                        Message = "Jobs should specify 'runs-on:' to define the runner"
+                    });
+                }
+            }
+        }
+        catch (Exception)
+        {
+            // Fall back to string matching if YAML parsing fails
+            if (!yaml.Contains("on:") && !yaml.Contains("on "))
+            {
+                issues.Add(new ValidationIssue
+                {
+                    Severity = ValidationSeverity.Error,
+                    Message = "Workflow missing required 'on:' trigger definition"
+                });
+            }
+
+            if (!yaml.Contains("jobs:") && !yaml.Contains("jobs "))
+            {
+                issues.Add(new ValidationIssue
+                {
+                    Severity = ValidationSeverity.Error,
+                    Message = "Workflow missing required 'jobs:' section"
+                });
+            }
+
+            if (yaml.Contains("jobs:") && !yaml.Contains("runs-on:"))
+            {
+                issues.Add(new ValidationIssue
+                {
+                    Severity = ValidationSeverity.Warning,
+                    Message = "Jobs should specify 'runs-on:' to define the runner"
+                });
+            }
         }
 
         return issues;

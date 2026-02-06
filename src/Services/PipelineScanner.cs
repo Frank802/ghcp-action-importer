@@ -9,10 +9,12 @@ namespace PipelineConverter.Services;
 public sealed class PipelineScanner
 {
     private readonly IReadOnlyList<IPipelineSource> _sources;
+    private readonly Action<string, Exception>? _onFileSkipped;
 
-    public PipelineScanner(IReadOnlyList<IPipelineSource> sources)
+    public PipelineScanner(IReadOnlyList<IPipelineSource> sources, Action<string, Exception>? onFileSkipped = null)
     {
         _sources = sources;
+        _onFileSkipped = onFileSkipped;
     }
 
     /// <summary>
@@ -108,9 +110,10 @@ public sealed class PipelineScanner
 
             return null;
         }
-        catch (Exception)
+        catch (Exception ex)
         {
-            // Skip files that can't be read
+            // Report skipped file if callback is provided
+            _onFileSkipped?.Invoke(filePath, ex);
             return null;
         }
     }
