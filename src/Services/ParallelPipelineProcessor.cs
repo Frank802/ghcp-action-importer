@@ -3,6 +3,7 @@ using PipelineConverter.Abstractions;
 using PipelineConverter.Configuration;
 using PipelineConverter.Extensions;
 using PipelineConverter.Models;
+using PipelineConverter.Utilities;
 
 namespace PipelineConverter.Services;
 
@@ -54,6 +55,7 @@ public class ParallelPipelineProcessor : IAsyncDisposable
     private readonly CopilotConverterService _converterService;
     private readonly CopilotValidationService _validationService;
     private bool _isStarted;
+    private bool _disposed;
 
     public ParallelPipelineProcessor(AppSettings settings)
     {
@@ -124,7 +126,7 @@ public class ParallelPipelineProcessor : IAsyncDisposable
 
             // Create a session for this pipeline with a unique ID
             // Sanitize name to only contain alphanumeric and hyphens (no dots, spaces, etc.)
-            var sanitizedName = SanitizeSessionId(pipeline.Name);
+            var sanitizedName = SessionIdSanitizer.SanitizeSessionId(pipeline.Name);
             var sessionConfig = new SessionConfig
             {
                 SessionId = $"pipeline-{sanitizedName}-{Guid.NewGuid():N}",
@@ -217,7 +219,10 @@ public class ParallelPipelineProcessor : IAsyncDisposable
         }
         finally
         {
-            _sessionSemaphore.Release();
+            if (!_disposed)
+            {
+                _sessionSemaphore.Release();
+            }
         }
     }
 
@@ -240,36 +245,18 @@ public class ParallelPipelineProcessor : IAsyncDisposable
         return CustomAgentConfigExtensions.FromMarkdownFile(fullPath);
     }
 
-    /// <summary>
-    /// Sanitizes a name for use in a session ID (alphanumeric and hyphens only).
-    /// </summary>
-    private static string SanitizeSessionId(string name)
-    {
-        // Replace dots and underscores with hyphens, remove other invalid chars
-        var sanitized = name
-            .Replace('.', '-')
-            .Replace('_', '-')
-            .Replace(' ', '-');
-        
-        // Remove any characters that aren't alphanumeric or hyphens
-        sanitized = System.Text.RegularExpressions.Regex.Replace(sanitized, @"[^a-zA-Z0-9\-]", "");
-        
-        // Remove leading hyphens and collapse multiple hyphens
-        sanitized = System.Text.RegularExpressions.Regex.Replace(sanitized, @"-+", "-").Trim('-');
-        
-        // Ensure it's not empty
-        return string.IsNullOrEmpty(sanitized) ? "unnamed" : sanitized.ToLowerInvariant();
-    }
-
     public async ValueTask DisposeAsync()
     {
-        _sessionSemaphore.Dispose();
+        if (_disposed) return;
+        
+        _disposed = true;
         await _converterService.DisposeAsync();
         await _validationService.DisposeAsync();
         if (_isStarted)
         {
             await _client.DisposeAsync();
         }
+        _sessionSemaphore.Dispose();
         GC.SuppressFinalize(this);
     }
 }

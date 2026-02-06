@@ -1,4 +1,5 @@
 using PipelineConverter.Models;
+using PipelineConverter.Utilities;
 
 namespace PipelineConverter.Services;
 
@@ -47,7 +48,7 @@ public class WorkflowWriter
         // Ensure directory exists
         EnsureDirectoryExists();
 
-        var fileName = result.SuggestedFileName ?? GenerateFileName(originalPipeline);
+        var fileName = result.SuggestedFileName ?? FileNameGenerator.GenerateWorkflowFileName(originalPipeline);
         var filePath = Path.Combine(WorkflowsDirectory, fileName);
 
         // Handle file conflicts
@@ -105,25 +106,6 @@ public class WorkflowWriter
         {
             Directory.CreateDirectory(WorkflowsDirectory);
         }
-    }
-
-    private static string GenerateFileName(PipelineInfo pipeline)
-    {
-        var baseName = Path.GetFileNameWithoutExtension(pipeline.FilePath)
-            .ToLowerInvariant()
-            .Replace('.', '-')
-            .Replace('_', '-')
-            .Replace(' ', '-');
-
-        // Clean up the name
-        baseName = string.Join("-", baseName.Split('-', StringSplitOptions.RemoveEmptyEntries));
-
-        if (string.IsNullOrWhiteSpace(baseName) || baseName.Equals("jenkinsfile", StringComparison.OrdinalIgnoreCase))
-        {
-            baseName = $"{pipeline.SourceType.ToString().ToLowerInvariant()}-pipeline";
-        }
-
-        return $"{baseName}.yml";
     }
 
     private static string GetUniqueFilePath(string filePath)

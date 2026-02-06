@@ -233,6 +233,7 @@ async Task RunConversionAsync(
         Console.ForegroundColor = ConsoleColor.Green;
         Console.WriteLine("Copilot connected successfully.");
         Console.ResetColor();
+        Console.WriteLine($"Using model: {settings.Copilot.Model}");
     }
     catch (Exception ex)
     {

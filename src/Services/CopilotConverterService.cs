@@ -2,6 +2,7 @@ using GitHub.Copilot.SDK;
 using PipelineConverter.Abstractions;
 using PipelineConverter.Extensions;
 using PipelineConverter.Models;
+using PipelineConverter.Utilities;
 
 namespace PipelineConverter.Services;
 
@@ -9,42 +10,22 @@ namespace PipelineConverter.Services;
 /// Service that uses GitHub Copilot SDK to convert pipelines to GitHub Actions.
 /// Can be used standalone or within an existing Copilot session.
 /// </summary>
-public class CopilotConverterService : IAsyncDisposable
+public sealed class CopilotConverterService : CopilotServiceBase
 {
-    private readonly CopilotClient? _client;
-    private readonly string _model;
-    private readonly TimeSpan _timeout;
-    private bool _isStarted;
-    private readonly bool _ownsClient;
-
-    /// <summary>
-    /// The custom agent configuration, if any.
-    /// </summary>
-    public CustomAgentConfig? CustomAgent { get; }
-
     /// <summary>
     /// Creates a standalone converter service with its own Copilot client.
     /// </summary>
     public CopilotConverterService(string model = "gpt-4.1", int timeoutSeconds = 120, CustomAgentConfig? customAgent = null)
+        : base(model, timeoutSeconds, customAgent)
     {
-        _client = new CopilotClient();
-        _model = model;
-        _timeout = TimeSpan.FromSeconds(timeoutSeconds);
-        CustomAgent = customAgent;
-        _ownsClient = true;
     }
 
     /// <summary>
     /// Creates a converter service that uses an external client (for session reuse).
     /// </summary>
     public CopilotConverterService(TimeSpan timeout, CustomAgentConfig? customAgent = null)
+        : base(timeout, customAgent)
     {
-        _client = null;
-        _model = string.Empty;
-        _timeout = timeout;
-        CustomAgent = customAgent;
-        _ownsClient = false;
-        _isStarted = true; // External client is assumed to be started
     }
 
     /// <summary>
@@ -56,20 +37,8 @@ public class CopilotConverterService : IAsyncDisposable
     /// <returns>A configured CopilotConverterService instance.</returns>
     public static CopilotConverterService WithAgentFromFile(string model, int timeoutSeconds, string agentFilePath)
     {
-        var customAgent = CustomAgentConfigExtensions.FromMarkdownFile(agentFilePath);
-        return new CopilotConverterService(model, timeoutSeconds, customAgent);
-    }
-
-    /// <summary>
-    /// Starts the Copilot client connection.
-    /// </summary>
-    public async Task StartAsync(CancellationToken cancellationToken = default)
-    {
-        if (_isStarted) return;
-        if (_client == null) return;
-        
-        await _client.StartAsync(cancellationToken);
-        _isStarted = true;
+        return CreateWithAgentFromFile(model, timeoutSeconds, agentFilePath, 
+            (m, t, a) => new CopilotConverterService(m, t, a));
     }
 
     /// <summary>
@@ -102,7 +71,7 @@ public class CopilotConverterService : IAsyncDisposable
             var prompt = BuildConversionPrompt(pipeline);
             
             var response = await session.SendAndWaitAsync(new MessageOptions { Prompt = prompt }, _timeout);
-            var responseContent = response?.Data?.Content ?? "";
+            var responseContent = response?.Data?.Content ?? string.Empty;
 
             var workflowYaml = ExtractYamlFromResponse(responseContent);
             
@@ -111,7 +80,7 @@ public class CopilotConverterService : IAsyncDisposable
                 return ConversionResult.Failed("Failed to extract valid GitHub Actions workflow from response.");
             }
 
-            var suggestedFileName = GenerateFileName(pipeline);
+            var suggestedFileName = FileNameGenerator.GenerateWorkflowFileName(pipeline);
             var notes = ExtractNotesFromResponse(responseContent);
 
             return ConversionResult.Success(workflowYaml, suggestedFileName, notes);
@@ -127,7 +96,7 @@ public class CopilotConverterService : IAsyncDisposable
     /// This allows the session to be reused for subsequent validation.
     /// </summary>
     public async Task<ConversionResult> ConvertInSessionAsync(
-        dynamic session,
+        CopilotSession session,
         PipelineInfo pipeline,
         CancellationToken cancellationToken = default)
     {
@@ -135,7 +104,7 @@ public class CopilotConverterService : IAsyncDisposable
         {
             var prompt = BuildConversionPrompt(pipeline);
             var response = await session.SendAndWaitAsync(new MessageOptions { Prompt = prompt }, _timeout);
-            string responseContent = (string)(response?.Data?.Content ?? "");
+            var responseContent = response?.Data?.Content ?? string.Empty;
 
             var workflowYaml = ExtractYamlFromResponse(responseContent);
             
@@ -144,7 +113,7 @@ public class CopilotConverterService : IAsyncDisposable
                 return ConversionResult.Failed("Failed to extract valid GitHub Actions workflow from response.");
             }
 
-            var suggestedFileName = GenerateFileName(pipeline);
+            var suggestedFileName = FileNameGenerator.GenerateWorkflowFileName(pipeline);
             var notes = ExtractNotesFromResponse(responseContent);
 
             return ConversionResult.Success(workflowYaml, suggestedFileName, notes);
@@ -266,35 +235,5 @@ public class CopilotConverterService : IAsyncDisposable
             .ToList();
 
         return notes.Count > 0 ? notes : null;
-    }
-
-    private static string GenerateFileName(PipelineInfo pipeline)
-    {
-        var baseName = Path.GetFileNameWithoutExtension(pipeline.FilePath)
-            .ToLowerInvariant()
-            .Replace('.', '-')
-            .Replace('_', '-');
-
-        // Ensure it doesn't start with a dot
-        if (baseName.StartsWith('-'))
-        {
-            baseName = baseName.TrimStart('-');
-        }
-
-        if (string.IsNullOrWhiteSpace(baseName) || baseName == "jenkinsfile")
-        {
-            baseName = pipeline.SourceType.ToString().ToLowerInvariant();
-        }
-
-        return $"{baseName}.yml";
-    }
-
-    public async ValueTask DisposeAsync()
-    {
-        if (_ownsClient && _isStarted && _client != null)
-        {
-            await _client.DisposeAsync();
-        }
-        GC.SuppressFinalize(this);
     }
 }

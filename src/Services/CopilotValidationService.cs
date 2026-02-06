@@ -12,41 +12,26 @@ namespace PipelineConverter.Services;
 /// Service that uses GitHub Copilot SDK to validate GitHub Actions workflows.
 /// Can be used standalone or within an existing Copilot session.
 /// </summary>
-public class CopilotValidationService : IAsyncDisposable
+public sealed class CopilotValidationService : CopilotServiceBase
 {
-    private readonly CopilotClient? _client;
-    private readonly string _model;
-    private readonly TimeSpan _timeout;
-    private readonly CustomAgentConfig? _customAgent;
-    private bool _isStarted;
     private readonly List<AIFunction> _tools;
-    private readonly bool _ownsClient;
 
     /// <summary>
     /// Creates a standalone validation service with its own Copilot client.
     /// </summary>
     public CopilotValidationService(string model = "gpt-4.1", int timeoutSeconds = 120, CustomAgentConfig? customAgent = null)
+        : base(model, timeoutSeconds, customAgent)
     {
-        _client = new CopilotClient();
-        _model = model;
-        _timeout = TimeSpan.FromSeconds(timeoutSeconds);
-        _customAgent = customAgent;
         _tools = CreateValidationTools();
-        _ownsClient = true;
     }
 
     /// <summary>
     /// Creates a validation service that uses an external client (for session reuse).
     /// </summary>
     public CopilotValidationService(TimeSpan timeout, CustomAgentConfig? customAgent = null)
+        : base(timeout, customAgent)
     {
-        _client = null;
-        _model = string.Empty;
-        _timeout = timeout;
-        _customAgent = customAgent;
         _tools = CreateValidationTools();
-        _ownsClient = false;
-        _isStarted = true; // External client is assumed to be started
     }
 
     /// <summary>
@@ -54,20 +39,8 @@ public class CopilotValidationService : IAsyncDisposable
     /// </summary>
     public static CopilotValidationService WithAgentFromFile(string model, int timeoutSeconds, string agentFilePath)
     {
-        var customAgent = CustomAgentConfigExtensions.FromMarkdownFile(agentFilePath);
-        return new CopilotValidationService(model, timeoutSeconds, customAgent);
-    }
-
-    /// <summary>
-    /// Starts the Copilot client connection.
-    /// </summary>
-    public async Task StartAsync(CancellationToken cancellationToken = default)
-    {
-        if (_isStarted) return;
-        if (_client == null) return;
-        
-        await _client.StartAsync(cancellationToken);
-        _isStarted = true;
+        return CreateWithAgentFromFile(model, timeoutSeconds, agentFilePath,
+            (m, t, a) => new CopilotValidationService(m, t, a));
     }
 
     /// <summary>
@@ -110,16 +83,16 @@ public class CopilotValidationService : IAsyncDisposable
                 Tools = _tools 
             };
 
-            if (_customAgent is not null)
+            if (CustomAgent is not null)
             {
-                sessionConfig.CustomAgents = [_customAgent];
+                sessionConfig.CustomAgents = [CustomAgent];
             }
 
             await using var session = await _client.CreateSessionAsync(sessionConfig, cancellationToken);
 
             var prompt = BuildValidationPrompt(originalPipeline, generatedWorkflow);
             var response = await session.SendAndWaitAsync(new MessageOptions { Prompt = prompt }, _timeout);
-            var responseContent = response?.Data?.Content ?? "";
+            var responseContent = response?.Data?.Content ?? string.Empty;
 
             // Parse Copilot's feedback
             var (_, copilotIssues) = ParseCopilotValidation(responseContent);
@@ -157,7 +130,7 @@ public class CopilotValidationService : IAsyncDisposable
     /// This maintains conversation context from the conversion step.
     /// </summary>
     public async Task<ValidationResult> ValidateInSessionAsync(
-        dynamic session,
+        CopilotSession session,
         string originalPipeline,
         string generatedWorkflow,
         CancellationToken cancellationToken = default)
@@ -180,7 +153,7 @@ public class CopilotValidationService : IAsyncDisposable
             // Use existing session for semantic validation (maintains context from conversion)
             var prompt = BuildValidationPrompt(originalPipeline, generatedWorkflow);
             var response = await session.SendAndWaitAsync(new MessageOptions { Prompt = prompt }, _timeout);
-            string responseContent = (string)(response?.Data?.Content ?? "");
+            var responseContent = response?.Data?.Content ?? string.Empty;
 
             // Parse Copilot's feedback
             var (_, copilotIssues) = ParseCopilotValidation(responseContent);
@@ -520,14 +493,5 @@ public class CopilotValidationService : IAsyncDisposable
         }
 
         return yaml;
-    }
-
-    public async ValueTask DisposeAsync()
-    {
-        if (_ownsClient && _isStarted && _client != null)
-        {
-            await _client.DisposeAsync();
-        }
-        GC.SuppressFinalize(this);
     }
 }
