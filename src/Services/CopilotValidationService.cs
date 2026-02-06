@@ -1,6 +1,7 @@
 using System.ComponentModel;
 using GitHub.Copilot.SDK;
 using Microsoft.Extensions.AI;
+using PipelineConverter.Extensions;
 using PipelineConverter.Models;
 using YamlDotNet.Core;
 using YamlDotNet.Serialization;
@@ -16,6 +17,7 @@ public class CopilotValidationService : IAsyncDisposable
     private readonly CopilotClient? _client;
     private readonly string _model;
     private readonly TimeSpan _timeout;
+    private readonly CustomAgentConfig? _customAgent;
     private bool _isStarted;
     private readonly List<AIFunction> _tools;
     private readonly bool _ownsClient;
@@ -23,11 +25,12 @@ public class CopilotValidationService : IAsyncDisposable
     /// <summary>
     /// Creates a standalone validation service with its own Copilot client.
     /// </summary>
-    public CopilotValidationService(string model = "gpt-4.1", int timeoutSeconds = 120)
+    public CopilotValidationService(string model = "gpt-4.1", int timeoutSeconds = 120, CustomAgentConfig? customAgent = null)
     {
         _client = new CopilotClient();
         _model = model;
         _timeout = TimeSpan.FromSeconds(timeoutSeconds);
+        _customAgent = customAgent;
         _tools = CreateValidationTools();
         _ownsClient = true;
     }
@@ -35,14 +38,24 @@ public class CopilotValidationService : IAsyncDisposable
     /// <summary>
     /// Creates a validation service that uses an external client (for session reuse).
     /// </summary>
-    public CopilotValidationService(TimeSpan timeout)
+    public CopilotValidationService(TimeSpan timeout, CustomAgentConfig? customAgent = null)
     {
         _client = null;
         _model = string.Empty;
         _timeout = timeout;
+        _customAgent = customAgent;
         _tools = CreateValidationTools();
         _ownsClient = false;
         _isStarted = true; // External client is assumed to be started
+    }
+
+    /// <summary>
+    /// Creates a CopilotValidationService with a custom agent loaded from a markdown file.
+    /// </summary>
+    public static CopilotValidationService WithAgentFromFile(string model, int timeoutSeconds, string agentFilePath)
+    {
+        var customAgent = CustomAgentConfigExtensions.FromMarkdownFile(agentFilePath);
+        return new CopilotValidationService(model, timeoutSeconds, customAgent);
     }
 
     /// <summary>
@@ -91,13 +104,18 @@ public class CopilotValidationService : IAsyncDisposable
         try
         {
             // Use Copilot for semantic validation and improvements
-            await using var session = await _client.CreateSessionAsync(
-                new SessionConfig 
-                { 
-                    Model = _model,
-                    Tools = _tools 
-                },
-                cancellationToken);
+            var sessionConfig = new SessionConfig 
+            { 
+                Model = _model,
+                Tools = _tools 
+            };
+
+            if (_customAgent is not null)
+            {
+                sessionConfig.CustomAgents = [_customAgent];
+            }
+
+            await using var session = await _client.CreateSessionAsync(sessionConfig, cancellationToken);
 
             var prompt = BuildValidationPrompt(originalPipeline, generatedWorkflow);
             var response = await session.SendAndWaitAsync(new MessageOptions { Prompt = prompt }, _timeout);

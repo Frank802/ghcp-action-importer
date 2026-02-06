@@ -14,9 +14,13 @@ public class CopilotConverterService : IAsyncDisposable
     private readonly CopilotClient? _client;
     private readonly string _model;
     private readonly TimeSpan _timeout;
-    private readonly CustomAgentConfig? _customAgent;
     private bool _isStarted;
     private readonly bool _ownsClient;
+
+    /// <summary>
+    /// The custom agent configuration, if any.
+    /// </summary>
+    public CustomAgentConfig? CustomAgent { get; }
 
     /// <summary>
     /// Creates a standalone converter service with its own Copilot client.
@@ -26,7 +30,7 @@ public class CopilotConverterService : IAsyncDisposable
         _client = new CopilotClient();
         _model = model;
         _timeout = TimeSpan.FromSeconds(timeoutSeconds);
-        _customAgent = customAgent;
+        CustomAgent = customAgent;
         _ownsClient = true;
     }
 
@@ -38,7 +42,7 @@ public class CopilotConverterService : IAsyncDisposable
         _client = null;
         _model = string.Empty;
         _timeout = timeout;
-        _customAgent = customAgent;
+        CustomAgent = customAgent;
         _ownsClient = false;
         _isStarted = true; // External client is assumed to be started
     }
@@ -88,9 +92,9 @@ public class CopilotConverterService : IAsyncDisposable
             var sessionConfig = new SessionConfig { Model = _model };
             
             // Add custom agent if configured
-            if (_customAgent is not null)
+            if (CustomAgent is not null)
             {
-                sessionConfig.CustomAgents = [_customAgent];
+                sessionConfig.CustomAgents = [CustomAgent];
             }
 
             await using var session = await _client.CreateSessionAsync(sessionConfig, cancellationToken);

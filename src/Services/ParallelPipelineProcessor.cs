@@ -1,6 +1,7 @@
 using GitHub.Copilot.SDK;
 using PipelineConverter.Abstractions;
 using PipelineConverter.Configuration;
+using PipelineConverter.Extensions;
 using PipelineConverter.Models;
 
 namespace PipelineConverter.Services;
@@ -60,8 +61,13 @@ public class ParallelPipelineProcessor : IAsyncDisposable
         _client = new CopilotClient();
         _sessionSemaphore = new SemaphoreSlim(settings.Copilot.MaxParallelSessions);
         _timeout = TimeSpan.FromSeconds(settings.Copilot.Timeout);
-        _converterService = new CopilotConverterService(_timeout);
-        _validationService = new CopilotValidationService(_timeout);
+
+        // Load custom agents from markdown files
+        var converterAgent = LoadAgentConfig(settings.Copilot.ConverterAgentFile);
+        var validatorAgent = LoadAgentConfig(settings.Copilot.ValidatorAgentFile);
+
+        _converterService = new CopilotConverterService(_timeout, converterAgent);
+        _validationService = new CopilotValidationService(_timeout, validatorAgent);
     }
 
     /// <summary>
@@ -122,7 +128,10 @@ public class ParallelPipelineProcessor : IAsyncDisposable
             var sessionConfig = new SessionConfig
             {
                 SessionId = $"pipeline-{sanitizedName}-{Guid.NewGuid():N}",
-                Model = _settings.Copilot.Model
+                Model = _settings.Copilot.Model,
+                CustomAgents = _converterService.CustomAgent is not null
+                    ? [_converterService.CustomAgent]
+                    : null
             };
 
             await using var session = await _client.CreateSessionAsync(sessionConfig, cancellationToken);
@@ -210,6 +219,25 @@ public class ParallelPipelineProcessor : IAsyncDisposable
         {
             _sessionSemaphore.Release();
         }
+    }
+
+    /// <summary>
+    /// Loads a CustomAgentConfig from a markdown file, returning null if the file doesn't exist.
+    /// </summary>
+    private static CustomAgentConfig? LoadAgentConfig(string? agentFilePath)
+    {
+        if (string.IsNullOrWhiteSpace(agentFilePath))
+            return null;
+
+        // Resolve relative to application base directory
+        var fullPath = Path.IsPathRooted(agentFilePath)
+            ? agentFilePath
+            : Path.Combine(AppContext.BaseDirectory, agentFilePath);
+
+        if (!File.Exists(fullPath))
+            return null;
+
+        return CustomAgentConfigExtensions.FromMarkdownFile(fullPath);
     }
 
     /// <summary>
