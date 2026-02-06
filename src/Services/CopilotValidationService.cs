@@ -103,7 +103,7 @@ public sealed class CopilotValidationService : CopilotServiceBase
 
             return new ValidationResult
             {
-                IsValid = !issues.Any(i => i.Severity == ValidationSeverity.Error),
+                IsValid = !issues.Exists(i => i.Severity == ValidationSeverity.Error),
                 Issues = issues,
                 Suggestions = suggestions,
                 ImprovedWorkflow = improvedWorkflow
@@ -119,7 +119,7 @@ public sealed class CopilotValidationService : CopilotServiceBase
 
             return new ValidationResult
             {
-                IsValid = !issues.Any(i => i.Severity == ValidationSeverity.Error),
+                IsValid = !issues.Exists(i => i.Severity == ValidationSeverity.Error),
                 Issues = issues
             };
         }
@@ -164,7 +164,7 @@ public sealed class CopilotValidationService : CopilotServiceBase
 
             return new ValidationResult
             {
-                IsValid = !issues.Any(i => i.Severity == ValidationSeverity.Error),
+                IsValid = !issues.Exists(i => i.Severity == ValidationSeverity.Error),
                 Issues = issues,
                 Suggestions = suggestions,
                 ImprovedWorkflow = improvedWorkflow
@@ -180,7 +180,7 @@ public sealed class CopilotValidationService : CopilotServiceBase
 
             return new ValidationResult
             {
-                IsValid = !issues.Any(i => i.Severity == ValidationSeverity.Error),
+                IsValid = !issues.Exists(i => i.Severity == ValidationSeverity.Error),
                 Issues = issues
             };
         }

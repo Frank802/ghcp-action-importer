@@ -68,6 +68,7 @@ public abstract class CopilotServiceBase : IAsyncDisposable
 
     public async ValueTask DisposeAsync()
     {
+        GC.SuppressFinalize(this);
         if (_ownsClient && _isStarted && _client != null)
         {
             await _client.DisposeAsync();

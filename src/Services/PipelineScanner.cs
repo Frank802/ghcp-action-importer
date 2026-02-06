@@ -37,12 +37,17 @@ public sealed class PipelineScanner
         // Build list of file patterns to search
         var patterns = GetSearchPatterns(filter);
 
+        var discoveredPaths = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+
         foreach (var pattern in patterns)
         {
             var files = Directory.GetFiles(directory, pattern, searchOption);
             
             foreach (var file in files)
             {
+                if (!discoveredPaths.Add(file))
+                    continue;
+
                 var pipeline = await TryExtractPipelineAsync(file, filter, cancellationToken);
                 if (pipeline is not null)
                 {
@@ -52,17 +57,12 @@ public sealed class PipelineScanner
         }
 
         // Also check for Jenkinsfiles which don't have extensions
-        var allFiles = Directory.GetFiles(directory, "*", searchOption);
-        foreach (var file in allFiles)
+        if (!filter.HasValue || filter.Value == PipelineType.Jenkins)
         {
-            var fileName = Path.GetFileName(file);
-            if (fileName.StartsWith("Jenkinsfile", StringComparison.OrdinalIgnoreCase))
+            var jenkinsFiles = Directory.GetFiles(directory, "Jenkinsfile*", searchOption);
+            foreach (var file in jenkinsFiles)
             {
-                // Skip if already found or filtered out
-                if (filter.HasValue && filter.Value != PipelineType.Jenkins)
-                    continue;
-                    
-                if (discoveredPipelines.Any(p => p.FilePath.Equals(file, StringComparison.OrdinalIgnoreCase)))
+                if (!discoveredPaths.Add(file))
                     continue;
 
                 var pipeline = await TryExtractPipelineAsync(file, filter, cancellationToken);

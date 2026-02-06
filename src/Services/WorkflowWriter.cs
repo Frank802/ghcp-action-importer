@@ -1,3 +1,4 @@
+using System.Text;
 using PipelineConverter.Models;
 using PipelineConverter.Utilities;
 
@@ -132,7 +133,7 @@ public sealed class WorkflowWriter
 
     private static string BuildValidationReport(string workflowPath, ValidationResult validation)
     {
-        var builder = new System.Text.StringBuilder();
+        var builder = new StringBuilder();
 
         builder.AppendLine($"# Validation Report");
         builder.AppendLine();

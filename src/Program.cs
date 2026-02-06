@@ -3,6 +3,7 @@ using PipelineConverter.Abstractions;
 using PipelineConverter.Configuration;
 using PipelineConverter.Models;
 using PipelineConverter.Services;
+using System.Diagnostics;
 using PipelineConverter.Sources;
 
 // Load configuration
@@ -293,7 +294,7 @@ async Task RunConversionAsync(
         }
     });
 
-    var startTime = DateTime.UtcNow;
+    var stopwatch = Stopwatch.StartNew();
     
     // Process all pipelines in parallel
     var results = await processor.ProcessAsync(
@@ -303,7 +304,7 @@ async Task RunConversionAsync(
         progress,
         cancellationToken);
 
-    var totalDuration = DateTime.UtcNow - startTime;
+    var totalDuration = stopwatch.Elapsed;
 
     // Display results
     Console.WriteLine();
@@ -442,8 +443,8 @@ async Task RunConversionAsync(
     Console.WriteLine($"Output directory: {writer.WorkflowsDirectory}");
 }
 
-// Command line arguments record
-record CommandLineArgs
+// Command line arguments
+class CommandLineArgs
 {
     public string? InputPath { get; set; }
     public string? OutputPath { get; set; }

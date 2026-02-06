@@ -30,5 +30,5 @@ public record PipelineInfo
     /// <summary>
     /// Gets additional metadata extracted from the pipeline (optional).
     /// </summary>
-    public Dictionary<string, string>? Metadata { get; init; }
+    public IReadOnlyDictionary<string, string>? Metadata { get; init; }
 }

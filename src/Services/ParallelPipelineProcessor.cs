@@ -1,3 +1,4 @@
+using System.Diagnostics;
 using GitHub.Copilot.SDK;
 using PipelineConverter.Abstractions;
 using PipelineConverter.Configuration;
@@ -127,7 +128,7 @@ public sealed class ParallelPipelineProcessor : IAsyncDisposable
         IProgress<ProcessingProgress>? progress,
         CancellationToken cancellationToken)
     {
-        var startTime = DateTime.UtcNow;
+        var stopwatch = Stopwatch.StartNew();
         
         // Wait for a session slot
         await _sessionSemaphore.WaitAsync(cancellationToken);
@@ -162,7 +163,7 @@ public sealed class ParallelPipelineProcessor : IAsyncDisposable
                 {
                     Pipeline = pipeline,
                     Conversion = conversionResult,
-                    Duration = DateTime.UtcNow - startTime
+                    Duration = stopwatch.Elapsed
                 };
             }
 
@@ -214,7 +215,7 @@ public sealed class ParallelPipelineProcessor : IAsyncDisposable
                 WorkflowPath = workflowPath,
                 ValidationReportPath = validationReportPath,
                 ImprovedWorkflowPath = improvedWorkflowPath,
-                Duration = DateTime.UtcNow - startTime
+                Duration = stopwatch.Elapsed
             };
         }
         catch (Exception ex)
@@ -225,7 +226,7 @@ public sealed class ParallelPipelineProcessor : IAsyncDisposable
             {
                 Pipeline = pipeline,
                 Conversion = ConversionResult.Failed($"Processing failed: {ex.Message}"),
-                Duration = DateTime.UtcNow - startTime,
+                Duration = stopwatch.Elapsed,
                 Error = ex
             };
         }
@@ -272,6 +273,7 @@ public sealed class ParallelPipelineProcessor : IAsyncDisposable
         if (_disposed) return;
         
         _disposed = true;
+        GC.SuppressFinalize(this);
         await _converterService.DisposeAsync();
         await _validationService.DisposeAsync();
         if (_isStarted)
