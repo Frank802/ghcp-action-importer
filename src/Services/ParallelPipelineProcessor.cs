@@ -46,7 +46,7 @@ public record ProcessingProgress(
 /// Parallel pipeline processor using multiple Copilot sessions.
 /// Each pipeline gets its own session for conversion and validation.
 /// </summary>
-public class ParallelPipelineProcessor : IAsyncDisposable
+public sealed class ParallelPipelineProcessor : IAsyncDisposable
 {
     private readonly CopilotClient _client;
     private readonly AppSettings _settings;
@@ -101,8 +101,20 @@ public class ParallelPipelineProcessor : IAsyncDisposable
         var tasks = pipelines.Select(pipeline => 
             ProcessPipelineAsync(pipeline, writer, skipValidation, progress, cancellationToken));
 
-        var results = await Task.WhenAll(tasks);
-        return results.ToList();
+        // Add aggregate timeout: per-pipeline timeout * max parallel sessions * 2 (safety buffer)
+        var aggregateTimeout = TimeSpan.FromSeconds(_timeout.TotalSeconds * _settings.Copilot.MaxParallelSessions * 2);
+        using var timeoutCts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+        timeoutCts.CancelAfter(aggregateTimeout);
+
+        try
+        {
+            var results = await Task.WhenAll(tasks).WaitAsync(timeoutCts.Token);
+            return results.ToList();
+        }
+        catch (OperationCanceledException) when (timeoutCts.IsCancellationRequested && !cancellationToken.IsCancellationRequested)
+        {
+            throw new TimeoutException($"Pipeline processing exceeded aggregate timeout of {aggregateTimeout.TotalSeconds:F0} seconds.");
+        }
     }
 
     /// <summary>
@@ -228,6 +240,7 @@ public class ParallelPipelineProcessor : IAsyncDisposable
 
     /// <summary>
     /// Loads a CustomAgentConfig from a markdown file, returning null if the file doesn't exist.
+    /// Validates that the resolved path is under the application base directory.
     /// </summary>
     private static CustomAgentConfig? LoadAgentConfig(string? agentFilePath)
     {
@@ -238,6 +251,15 @@ public class ParallelPipelineProcessor : IAsyncDisposable
         var fullPath = Path.IsPathRooted(agentFilePath)
             ? agentFilePath
             : Path.Combine(AppContext.BaseDirectory, agentFilePath);
+
+        // Normalize paths and validate that fullPath is under AppContext.BaseDirectory
+        var normalizedBasePath = Path.GetFullPath(AppContext.BaseDirectory);
+        var normalizedFullPath = Path.GetFullPath(fullPath);
+        
+        if (!normalizedFullPath.StartsWith(normalizedBasePath, StringComparison.OrdinalIgnoreCase))
+        {
+            throw new UnauthorizedAccessException($"Agent file path '{agentFilePath}' resolves outside the application directory.");
+        }
 
         if (!File.Exists(fullPath))
             return null;
@@ -257,6 +279,5 @@ public class ParallelPipelineProcessor : IAsyncDisposable
             await _client.DisposeAsync();
         }
         _sessionSemaphore.Dispose();
-        GC.SuppressFinalize(this);
     }
 }

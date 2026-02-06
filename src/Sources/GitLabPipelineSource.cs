@@ -6,7 +6,7 @@ namespace PipelineConverter.Sources;
 /// <summary>
 /// Pipeline source handler for GitLab CI/CD (.gitlab-ci.yml) files.
 /// </summary>
-public class GitLabPipelineSource : IPipelineSource
+public sealed class GitLabPipelineSource : IPipelineSource
 {
     public PipelineType Type => PipelineType.GitLab;
 

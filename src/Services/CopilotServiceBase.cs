@@ -72,6 +72,5 @@ public abstract class CopilotServiceBase : IAsyncDisposable
         {
             await _client.DisposeAsync();
         }
-        GC.SuppressFinalize(this);
     }
 }

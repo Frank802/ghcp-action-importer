@@ -6,7 +6,7 @@ namespace PipelineConverter.Sources;
 /// <summary>
 /// Pipeline source handler for Azure DevOps (azure-pipelines.yml) files.
 /// </summary>
-public class AzureDevOpsPipelineSource : IPipelineSource
+public sealed class AzureDevOpsPipelineSource : IPipelineSource
 {
     public PipelineType Type => PipelineType.AzureDevOps;
 

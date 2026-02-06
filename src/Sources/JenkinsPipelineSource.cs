@@ -6,7 +6,7 @@ namespace PipelineConverter.Sources;
 /// <summary>
 /// Pipeline source handler for Jenkins (Jenkinsfile) files.
 /// </summary>
-public class JenkinsPipelineSource : IPipelineSource
+public sealed class JenkinsPipelineSource : IPipelineSource
 {
     public PipelineType Type => PipelineType.Jenkins;
 

@@ -432,8 +432,8 @@ async Task RunConversionAsync(
     Console.WriteLine($"Output directory: {writer.WorkflowsDirectory}");
 }
 
-// Command line arguments class
-class CommandLineArgs
+// Command line arguments record
+record CommandLineArgs
 {
     public string? InputPath { get; set; }
     public string? OutputPath { get; set; }

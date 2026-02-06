@@ -6,26 +6,23 @@ namespace PipelineConverter.Services;
 /// <summary>
 /// Service for scanning directories to find pipeline files.
 /// </summary>
-public class PipelineScanner
+public sealed class PipelineScanner
 {
     private readonly IReadOnlyList<IPipelineSource> _sources;
 
-    public PipelineScanner(IEnumerable<IPipelineSource> sources)
+    public PipelineScanner(IReadOnlyList<IPipelineSource> sources)
     {
-        _sources = sources.ToList();
+        _sources = sources;
     }
 
     /// <summary>
-    /// Scans a directory for pipeline files and extracts their information.
+    /// Scans a directory asynchronously for pipeline files.
     /// </summary>
-    /// <param name="directory">The directory to scan.</param>
-    /// <param name="filter">Optional filter to only scan for specific pipeline types.</param>
-    /// <param name="recursive">Whether to scan subdirectories.</param>
-    /// <returns>Collection of discovered pipeline information.</returns>
-    public IEnumerable<PipelineInfo> Scan(
-        string directory, 
+    public async Task<IReadOnlyList<PipelineInfo>> ScanAsync(
+        string directory,
         PipelineType? filter = null,
-        bool recursive = true)
+        bool recursive = true,
+        CancellationToken cancellationToken = default)
     {
         if (!Directory.Exists(directory))
         {
@@ -44,7 +41,7 @@ public class PipelineScanner
             
             foreach (var file in files)
             {
-                var pipeline = TryExtractPipeline(file, filter);
+                var pipeline = await TryExtractPipelineAsync(file, filter, cancellationToken);
                 if (pipeline is not null)
                 {
                     discoveredPipelines.Add(pipeline);
@@ -66,7 +63,7 @@ public class PipelineScanner
                 if (discoveredPipelines.Any(p => p.FilePath.Equals(file, StringComparison.OrdinalIgnoreCase)))
                     continue;
 
-                var pipeline = TryExtractPipeline(file, filter);
+                var pipeline = await TryExtractPipelineAsync(file, filter, cancellationToken);
                 if (pipeline is not null)
                 {
                     discoveredPipelines.Add(pipeline);
@@ -75,18 +72,6 @@ public class PipelineScanner
         }
 
         return discoveredPipelines;
-    }
-
-    /// <summary>
-    /// Scans a directory asynchronously for pipeline files.
-    /// </summary>
-    public async Task<IReadOnlyList<PipelineInfo>> ScanAsync(
-        string directory,
-        PipelineType? filter = null,
-        bool recursive = true,
-        CancellationToken cancellationToken = default)
-    {
-        return await Task.Run(() => Scan(directory, filter, recursive).ToList(), cancellationToken);
     }
 
     private IEnumerable<string> GetSearchPatterns(PipelineType? filter)
@@ -102,11 +87,11 @@ public class PipelineScanner
             .Distinct();
     }
 
-    private PipelineInfo? TryExtractPipeline(string filePath, PipelineType? filter)
+    private async Task<PipelineInfo?> TryExtractPipelineAsync(string filePath, PipelineType? filter, CancellationToken cancellationToken)
     {
         try
         {
-            var content = File.ReadAllText(filePath);
+            var content = await File.ReadAllTextAsync(filePath, cancellationToken);
 
             // Find a source that can handle this file
             var sources = filter.HasValue 

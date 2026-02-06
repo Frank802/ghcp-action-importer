@@ -6,7 +6,7 @@ namespace PipelineConverter.Services;
 /// <summary>
 /// Service for writing converted workflows to disk.
 /// </summary>
-public class WorkflowWriter
+public sealed class WorkflowWriter
 {
     private readonly string _outputDirectory;
     private readonly bool _createWorkflowsSubdir;
