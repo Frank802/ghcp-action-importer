@@ -40,12 +40,16 @@ Always respond with:
 - `artifacts` → `actions/upload-artifact` / `actions/download-artifact`
 - `cache` → `actions/cache`
 
+Find out more details in the [GitHub Actions Migration for GitLab CI/CD Best Practices](https://docs.github.com/en/actions/tutorials/migrate-to-github-actions/manual-migrations/migrate-from-gitlab-cicd).
+
 ### Azure DevOps → GitHub Actions
 - `trigger` → `on.push`/`on.pull_request`
 - `pool` → `runs-on`
 - `stages/jobs` → `jobs` with dependencies
 - `variables` → `env`
 - `task` → equivalent GitHub Actions
+
+Find out more details in the [GitHub Actions Migration for Azure DevOps Best Practices](https://docs.github.com/en/actions/tutorials/migrate-to-github-actions/manual-migrations/migrate-from-azure-pipelines).
 
 ### Jenkins → GitHub Actions
 - `agent` → `runs-on`
@@ -54,3 +58,5 @@ Always respond with:
 - `environment` → `env`
 - `when` → `if` conditions
 - `post` → job-level `if: always()` or similar patterns
+
+Find out more details in the [GitHub Actions Migration for Jenkins Best Practices](https://docs.github.com/en/actions/tutorials/migrate-to-github-actions/manual-migrations/migrate-from-jenkins).
