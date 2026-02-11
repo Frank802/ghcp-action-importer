@@ -77,28 +77,14 @@ public sealed class WorkflowWriter
     }
 
     /// <summary>
-    /// Writes an improved workflow if validation provided one.
+    /// Overwrites the converted workflow file with the improved version from validation.
     /// </summary>
-    public async Task<string?> WriteImprovedWorkflowAsync(
-        string originalWorkflowPath,
-        ValidationResult validation,
+    public async Task OverwriteWithImprovedAsync(
+        string workflowPath,
+        string improvedContent,
         CancellationToken cancellationToken = default)
     {
-        if (string.IsNullOrWhiteSpace(validation.ImprovedWorkflow))
-        {
-            return null;
-        }
-
-        var directory = Path.GetDirectoryName(originalWorkflowPath)!;
-        var fileName = Path.GetFileNameWithoutExtension(originalWorkflowPath);
-        var extension = Path.GetExtension(originalWorkflowPath);
-        
-        var improvedPath = Path.Combine(directory, $"{fileName}.improved{extension}");
-        improvedPath = GetUniqueFilePath(improvedPath);
-
-        await File.WriteAllTextAsync(improvedPath, validation.ImprovedWorkflow, cancellationToken);
-
-        return improvedPath;
+        await File.WriteAllTextAsync(workflowPath, improvedContent, cancellationToken);
     }
 
     private void EnsureDirectoryExists()
@@ -205,9 +191,53 @@ public sealed class WorkflowWriter
 
         if (!string.IsNullOrWhiteSpace(validation.ImprovedWorkflow))
         {
-            builder.AppendLine("## Improved Workflow Available");
+            builder.AppendLine("## Improvements Applied");
             builder.AppendLine();
-            builder.AppendLine("An improved version of the workflow has been generated. Check the `.improved.yml` file.");
+            builder.AppendLine("The following improvements have been applied to the output workflow file:");
+            builder.AppendLine();
+
+            if (validation.ImprovementSummary?.Count > 0)
+            {
+                foreach (var change in validation.ImprovementSummary)
+                {
+                    builder.AppendLine($"- {change}");
+                }
+            }
+            else if (validation.Suggestions?.Count > 0)
+            {
+                foreach (var suggestion in validation.Suggestions)
+                {
+                    builder.AppendLine($"- {suggestion}");
+                }
+            }
+            else if (validation.Issues.Count > 0)
+            {
+                // Derive summary from issues that have suggestions
+                var actionableIssues = validation.Issues
+                    .Where(i => !string.IsNullOrEmpty(i.Suggestion))
+                    .Select(i => i.Suggestion!)
+                    .ToList();
+                
+                if (actionableIssues.Count > 0)
+                {
+                    foreach (var fix in actionableIssues)
+                    {
+                        builder.AppendLine($"- {fix}");
+                    }
+                }
+                else
+                {
+                    // Last resort: summarize from issue messages
+                    foreach (var issue in validation.Issues.Where(i => i.Severity != ValidationSeverity.Info).Take(10))
+                    {
+                        builder.AppendLine($"- Fixed: {issue.Message}");
+                    }
+                }
+            }
+            else
+            {
+                builder.AppendLine("- General improvements based on validation findings.");
+            }
         }
 
         return builder.ToString();

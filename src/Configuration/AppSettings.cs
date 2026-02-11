@@ -84,11 +84,6 @@ public class ConversionSettings
     /// Whether to generate validation report files.
     /// </summary>
     public bool GenerateValidationReports { get; set; } = true;
-
-    /// <summary>
-    /// Whether to generate improved workflow files when suggestions are available.
-    /// </summary>
-    public bool GenerateImprovedWorkflows { get; set; } = true;
 }
 
 /// <summary>

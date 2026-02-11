@@ -18,7 +18,6 @@ public record PipelineProcessingResult
     public ValidationResult? Validation { get; init; }
     public string? WorkflowPath { get; init; }
     public string? ValidationReportPath { get; init; }
-    public string? ImprovedWorkflowPath { get; init; }
     public TimeSpan Duration { get; init; }
     public Exception? Error { get; init; }
 }
@@ -175,7 +174,6 @@ public sealed class ParallelPipelineProcessor : IAsyncDisposable
 
             ValidationResult? validationResult = null;
             string? validationReportPath = null;
-            string? improvedWorkflowPath = null;
 
             // Phase 2: Validation (in same session, maintains context)
             if (!skipValidation)
@@ -190,17 +188,17 @@ public sealed class ParallelPipelineProcessor : IAsyncDisposable
 
                 progress?.Report(new ProcessingProgress(pipeline, ProcessingPhase.ValidationComplete));
 
+                // Overwrite the converted workflow with the improved version if available
+                if (!string.IsNullOrWhiteSpace(validationResult.ImprovedWorkflow))
+                {
+                    await writer.OverwriteWithImprovedAsync(
+                        workflowPath, validationResult.ImprovedWorkflow, cancellationToken);
+                }
+
                 // Write validation report
                 if (_settings.Conversion.GenerateValidationReports)
                 {
                     validationReportPath = await writer.WriteValidationReportAsync(
-                        workflowPath, validationResult, cancellationToken);
-                }
-
-                // Write improved workflow
-                if (_settings.Conversion.GenerateImprovedWorkflows)
-                {
-                    improvedWorkflowPath = await writer.WriteImprovedWorkflowAsync(
                         workflowPath, validationResult, cancellationToken);
                 }
             }
@@ -214,7 +212,6 @@ public sealed class ParallelPipelineProcessor : IAsyncDisposable
                 Validation = validationResult,
                 WorkflowPath = workflowPath,
                 ValidationReportPath = validationReportPath,
-                ImprovedWorkflowPath = improvedWorkflowPath,
                 Duration = stopwatch.Elapsed
             };
         }

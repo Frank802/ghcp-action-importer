@@ -62,6 +62,11 @@ public record ValidationResult
     public string? ImprovedWorkflow { get; init; }
 
     /// <summary>
+    /// Gets a summary of the specific changes made in the improved workflow.
+    /// </summary>
+    public IReadOnlyList<string>? ImprovementSummary { get; init; }
+
+    /// <summary>
     /// Creates a successful validation result with no issues.
     /// </summary>
     public static ValidationResult Success() => new()

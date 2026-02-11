@@ -100,13 +100,15 @@ public sealed class CopilotValidationService : CopilotServiceBase
 
             var suggestions = ExtractSuggestions(responseContent);
             var improvedWorkflow = ExtractImprovedWorkflow(responseContent);
+            var improvementSummary = ExtractImprovementSummary(responseContent);
 
             return new ValidationResult
             {
                 IsValid = !issues.Exists(i => i.Severity == ValidationSeverity.Error),
                 Issues = issues,
                 Suggestions = suggestions,
-                ImprovedWorkflow = improvedWorkflow
+                ImprovedWorkflow = improvedWorkflow,
+                ImprovementSummary = improvementSummary
             };
         }
         catch (Exception ex)
@@ -161,13 +163,15 @@ public sealed class CopilotValidationService : CopilotServiceBase
 
             var suggestions = ExtractSuggestions(responseContent);
             var improvedWorkflow = ExtractImprovedWorkflow(responseContent);
+            var improvementSummary = ExtractImprovementSummary(responseContent);
 
             return new ValidationResult
             {
                 IsValid = !issues.Exists(i => i.Severity == ValidationSeverity.Error),
                 Issues = issues,
                 Suggestions = suggestions,
-                ImprovedWorkflow = improvedWorkflow
+                ImprovedWorkflow = improvedWorkflow,
+                ImprovementSummary = improvementSummary
             };
         }
         catch (Exception ex)
@@ -427,9 +431,17 @@ public sealed class CopilotValidationService : CopilotServiceBase
             - Suggestion 2
             
             ## Improved Workflow (if changes recommended)
+            
+            ### Changes Made
+            You MUST list every change you made to the workflow below. Be specific.
+            - Description of change 1
+            - Description of change 2
+            
             ```yaml
-            # Only include if you have improvements
+            # The full improved workflow YAML
             ```
+            
+            IMPORTANT: If you provide an improved workflow, you MUST include a "### Changes Made" section with a bullet list describing each specific change. Do not skip this section.
             """;
     }
 
@@ -520,6 +532,54 @@ public sealed class CopilotValidationService : CopilotServiceBase
         }
 
         return suggestions.Count > 0 ? suggestions : null;
+    }
+
+    private static List<string>? ExtractImprovementSummary(string response)
+    {
+        // Look for "### Changes Made" section within "## Improved Workflow"
+        var improvedIndex = response.IndexOf("## Improved Workflow", StringComparison.OrdinalIgnoreCase);
+        if (improvedIndex == -1) return null;
+
+        var afterImproved = response[improvedIndex..];
+        var changesIndex = afterImproved.IndexOf("### Changes Made", StringComparison.OrdinalIgnoreCase);
+        if (changesIndex == -1)
+        {
+            // Fallback: also look for "Changes Made" without ### or "### Changes"
+            changesIndex = afterImproved.IndexOf("Changes Made", StringComparison.OrdinalIgnoreCase);
+            if (changesIndex == -1) return null;
+        }
+
+        var changes = new List<string>();
+        var lines = afterImproved[changesIndex..].Split('\n');
+        var started = false;
+
+        foreach (var line in lines)
+        {
+            var trimmed = line.Trim();
+
+            // Skip the header line itself
+            if (trimmed.Contains("Changes Made", StringComparison.OrdinalIgnoreCase) ||
+                trimmed.Contains("Changes", StringComparison.OrdinalIgnoreCase) && trimmed.StartsWith('#'))
+            {
+                started = true;
+                continue;
+            }
+
+            if (!started) continue;
+
+            // Stop at the next section header or code block
+            if (trimmed.StartsWith("##") || trimmed.StartsWith("```"))
+                break;
+
+            if (trimmed.StartsWith("-") || trimmed.StartsWith("*"))
+            {
+                var text = trimmed.TrimStart('-', '*', ' ');
+                if (!string.IsNullOrWhiteSpace(text))
+                    changes.Add(text);
+            }
+        }
+
+        return changes.Count > 0 ? changes : null;
     }
 
     private static string? ExtractImprovedWorkflow(string response)

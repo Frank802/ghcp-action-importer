@@ -263,10 +263,19 @@ async Task RunConversionAsync(
     Console.WriteLine($"Processing {pipelines.Count} pipeline(s) in parallel...");
     Console.WriteLine();
 
-    // Track progress with thread-safe console output
+    // Track progress with in-place updating lines (one line per pipeline)
     var progressLock = new object();
-    var pipelineStatus = new Dictionary<string, string>();
-    
+    var pipelineLines = new Dictionary<string, int>();
+
+    // Pre-allocate a status line for each pipeline
+    foreach (var pipeline in pipelines)
+    {
+        var name = Path.GetFileName(pipeline.FilePath);
+        pipelineLines[name] = Console.CursorTop;
+        Console.WriteLine($"  [{name}] ⏳ Waiting...");
+    }
+    var progressEndLine = Console.CursorTop;
+
     var progress = new Progress<ProcessingProgress>(p =>
     {
         lock (progressLock)
@@ -284,12 +293,22 @@ async Task RunConversionAsync(
                 ProcessingPhase.Failed => $"❌ Failed: {p.Message}",
                 _ => "..."
             };
-            
-            pipelineStatus[name] = status;
 
-            if (verbose)
+            if (pipelineLines.TryGetValue(name, out var line))
             {
-                Console.WriteLine($"  [{name}] {status}");
+                try
+                {
+                    var width = Console.WindowWidth;
+                    Console.SetCursorPosition(0, line);
+                    var text = $"  [{name}] {status}";
+                    Console.Write(text.PadRight(width - 1));
+                    Console.SetCursorPosition(0, progressEndLine);
+                }
+                catch
+                {
+                    // Fallback if console cursor manipulation isn't supported (e.g. redirected output)
+                    Console.WriteLine($"  [{name}] {status}");
+                }
             }
         }
     });
@@ -305,6 +324,9 @@ async Task RunConversionAsync(
         cancellationToken);
 
     var totalDuration = stopwatch.Elapsed;
+
+    // Move past the progress block before printing results
+    Console.SetCursorPosition(0, progressEndLine);
 
     // Display results
     Console.WriteLine();
@@ -386,10 +408,10 @@ async Task RunConversionAsync(
                     Console.WriteLine($"  Report: {Path.GetRelativePath(output.FullName, result.ValidationReportPath)}");
                 }
 
-                if (result.ImprovedWorkflowPath is not null)
+                if (!string.IsNullOrWhiteSpace(result.Validation.ImprovedWorkflow))
                 {
                     Console.ForegroundColor = ConsoleColor.Cyan;
-                    Console.WriteLine($"  Improved: {Path.GetRelativePath(output.FullName, result.ImprovedWorkflowPath)}");
+                    Console.WriteLine("  Improvements: Applied to output workflow");
                     Console.ResetColor();
                 }
 
