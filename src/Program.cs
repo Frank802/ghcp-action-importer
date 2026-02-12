@@ -3,8 +3,9 @@ using PipelineConverter.Abstractions;
 using PipelineConverter.Configuration;
 using PipelineConverter.Models;
 using PipelineConverter.Services;
-using System.Diagnostics;
 using PipelineConverter.Sources;
+using PipelineConverter.Components;
+using System.Diagnostics;
 
 // Load configuration
 var configuration = new ConfigurationBuilder()
@@ -46,6 +47,35 @@ if (arguments.ShowHelp || arguments.InputPath is null || arguments.OutputPath is
 // Command line verbose flag overrides config
 var verbose = arguments.Verbose || appSettings.Logging.Verbose;
 
+// Optionally start a Blazor Server dashboard
+WebApplication? webApp = null;
+PipelineProgressService? progressService = null;
+
+if (arguments.Port.HasValue)
+{
+    var builder = WebApplication.CreateBuilder();
+    builder.Services.AddRazorComponents()
+        .AddInteractiveServerComponents();
+    builder.Services.AddSingleton<PipelineProgressService>();
+    builder.WebHost.UseUrls($"http://localhost:{arguments.Port.Value}");
+    // Suppress default ASP.NET Core console logging noise
+    builder.Logging.SetMinimumLevel(LogLevel.Warning);
+
+    webApp = builder.Build();
+    webApp.UseStaticFiles();
+    webApp.UseAntiforgery();
+    webApp.MapRazorComponents<App>()
+        .AddInteractiveServerRenderMode();
+
+    await webApp.StartAsync();
+    progressService = webApp.Services.GetRequiredService<PipelineProgressService>();
+
+    Console.ForegroundColor = ConsoleColor.Cyan;
+    Console.WriteLine($"Dashboard available at http://localhost:{arguments.Port.Value}");
+    Console.ResetColor();
+    Console.WriteLine();
+}
+
 await RunConversionAsync(
     new DirectoryInfo(arguments.InputPath),
     new DirectoryInfo(arguments.OutputPath),
@@ -53,7 +83,18 @@ await RunConversionAsync(
     arguments.SkipValidation,
     verbose,
     appSettings,
+    progressService,
     CancellationToken.None);
+
+if (webApp is not null)
+{
+    Console.WriteLine();
+    Console.ForegroundColor = ConsoleColor.Cyan;
+    Console.WriteLine($"Dashboard is still running at http://localhost:{arguments.Port!.Value}");
+    Console.WriteLine("Press Ctrl+C to stop.");
+    Console.ResetColor();
+    await webApp.WaitForShutdownAsync();
+}
 
 return 0;
 
@@ -109,6 +150,12 @@ static CommandLineArgs ParseArguments(string[] args)
                 if (i + 1 < args.Length && int.TryParse(args[++i], out var maxSessions))
                     result.MaxSessions = maxSessions;
                 break;
+
+            case "-p":
+            case "--port":
+                if (i + 1 < args.Length && int.TryParse(args[++i], out var port))
+                    result.Port = port;
+                break;
         }
     }
     
@@ -129,6 +176,7 @@ Required (or set in appsettings.json):
 Options:
   -s, --source <type>     Filter to specific source (GitLab, AzureDevOps, Jenkins)
   -m, --max-sessions <n>  Maximum parallel Copilot sessions (default: 3)
+  -p, --port <port>       Start a web dashboard on the given port
   --skip-validation       Skip validation step after conversion
   -v, --verbose           Enable verbose output
   -h, --help              Show this help message
@@ -141,6 +189,7 @@ Configuration:
 Examples:
   PipelineConverter -i ./pipelines -o ./converted
   PipelineConverter -i ./ci -o ./output -s GitLab --verbose
+  PipelineConverter -i ./ci -o ./output -p 5050   # With live dashboard
   PipelineConverter                     # Uses paths from appsettings.json
 ");
 }
@@ -153,6 +202,7 @@ async Task RunConversionAsync(
     bool skipValidation,
     bool verbose,
     AppSettings settings,
+    PipelineProgressService? progressService,
     CancellationToken cancellationToken)
 {
     Console.WriteLine();
@@ -260,6 +310,9 @@ async Task RunConversionAsync(
     }
 
     Console.WriteLine();
+    // Feed discovered pipelines to the dashboard (if running)
+    progressService?.SetPipelines(pipelines);
+
     Console.WriteLine($"Processing {pipelines.Count} pipeline(s) in parallel...");
     Console.WriteLine();
 
@@ -278,6 +331,9 @@ async Task RunConversionAsync(
 
     var progress = new Progress<ProcessingProgress>(p =>
     {
+        // Push update to web dashboard (if running)
+        progressService?.Update(p);
+
         lock (progressLock)
         {
             var name = Path.GetFileName(p.Pipeline.FilePath);
@@ -472,6 +528,7 @@ class CommandLineArgs
     public string? OutputPath { get; set; }
     public PipelineType? SourceFilter { get; set; }
     public int? MaxSessions { get; set; }
+    public int? Port { get; set; }
     public bool SkipValidation { get; set; }
     public bool Verbose { get; set; }
     public bool ShowHelp { get; set; }
