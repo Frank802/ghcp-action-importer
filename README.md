@@ -20,6 +20,33 @@ A .NET 10 application that converts CI/CD pipelines from GitLab, Azure DevOps, a
 - **Detailed reports**: Generates validation reports with suggestions for improvements
 - **Auto-improved workflows**: Validation improvements are applied directly to the output workflow
 
+## How It Works
+
+```
+┌─────────────┐     ┌──────────────────┐     ┌─────────────────────────────────────┐     ┌────────────────┐
+│  Input Dir   │────▶│  PipelineScanner │────▶│  ParallelPipelineProcessor          │────▶│  Output Dir    │
+│              │     │                  │     │                                     │     │                │
+│ .gitlab-ci   │     │  Matches files   │     │  ┌───────────┐  ┌───────────────┐  │     │ workflow.yml   │
+│ azure-pipe   │     │  against source  │     │  │  Copilot   │  │   Copilot     │  │     │ validation.md  │
+│ Jenkinsfile  │     │  file patterns   │     │  │  Converter │─▶│   Validator   │  │     │                │
+└─────────────┘     └──────────────────┘     │  │  Session   │  │   (same sess) │  │     └────────────────┘
+                                              │  └───────────┘  └───────────────┘  │
+                                              │  ... parallel sessions (N)         │
+                                              └─────────────────────────────────────┘
+```
+
+1. **Scan** — `PipelineScanner` walks the input directory and matches files against registered `IPipelineSource` implementations (GitLab, Azure DevOps, Jenkins). Each matched file is read and wrapped in a `PipelineInfo` object.
+
+2. **Connect** — A single `CopilotClient` is created and connects to GitHub Copilot via the CLI. A `SemaphoreSlim` throttles work to `MaxParallelSessions` concurrent sessions.
+
+3. **Convert** — For each pipeline, a dedicated Copilot session is created with a sanitized session ID. The `CopilotConverterService` sends the pipeline content along with a conversion prompt to a custom **pipeline-converter** agent. The model returns a GitHub Actions workflow in a YAML code block, which is extracted and saved.
+
+4. **Validate** — In the *same* session (preserving conversation context), the `CopilotValidationService` sends the original pipeline and converted workflow to a custom **workflow-validator** agent. The validator checks syntax, security, and action pinning, then returns issues, suggestions, and an improved workflow.
+
+5. **Write** — `WorkflowWriter` saves the workflow file (overwriting with the improved version if one was produced) and generates a `.validation.md` report.
+
+6. **Report** — Console output summarizes results per pipeline (errors, warnings, suggestions, duration). If `--port` was specified, the Blazor Server dashboard shows live progress throughout.
+
 ## Prerequisites
 
 - [.NET 10 SDK](https://dotnet.microsoft.com/download)
