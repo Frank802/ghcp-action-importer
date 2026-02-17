@@ -3,7 +3,7 @@
 > [!WARNING]
 > This project is experimental and under active development. Features may change without notice and the generated workflows should be reviewed carefully before use in production.
 
-A .NET 10 console application that converts CI/CD pipelines from GitLab, Azure DevOps, and Jenkins to GitHub Actions using the [GitHub Copilot SDK](https://github.com/github/copilot-sdk).
+A .NET 10 application that converts CI/CD pipelines from GitLab, Azure DevOps, and Jenkins to GitHub Actions using the [GitHub Copilot SDK](https://github.com/github/copilot-sdk).
 
 ## Features
 
@@ -15,9 +15,10 @@ A .NET 10 console application that converts CI/CD pipelines from GitLab, Azure D
   - GitHub Actions structure requirements
   - Security best practices
   - Action version pinning
+- **Live web dashboard**: Optional Blazor Server dashboard (`--port`) for real-time conversion progress monitoring
 - **Extensible architecture**: `IPipelineSource` interface allows easy addition of new pipeline sources
 - **Detailed reports**: Generates validation reports with suggestions for improvements
-- **Improved workflows**: Automatically generates improved versions with best practices applied
+- **Auto-improved workflows**: Validation improvements are applied directly to the output workflow
 
 ## Prerequisites
 
@@ -25,13 +26,28 @@ A .NET 10 console application that converts CI/CD pipelines from GitLab, Azure D
 - [GitHub Copilot CLI](https://docs.github.com/en/copilot/how-tos/set-up/install-copilot-cli) installed and authenticated
 - Active GitHub Copilot subscription
 
-## Installation
+## Quick Start
 
 ```bash
 git clone https://github.com/Frank802/ghcp-action-importer.git
-cd ghcp-action-importer/src/PipelineConverter
+cd ghcp-action-importer/src
 dotnet build
 ```
+
+Run the converter on the included sample pipelines:
+
+```bash
+dotnet run -- -i ../samples -o ../output -v
+```
+
+This will convert:
+- GitLab CI (`.gitlab-ci.yml`) — Node.js build/test/deploy pipeline
+- Azure DevOps (`azure-pipelines.yml`) — .NET multi-stage pipeline
+- Jenkins (`Jenkinsfile`) — Java Maven with Docker and Kubernetes
+
+Output will be saved to `output/` with:
+- Converted workflow files (`.yml`)
+- Validation reports (`.validation.md`)
 
 ## Usage
 
@@ -44,6 +60,9 @@ dotnet run -- -i ./pipelines -o ./converted -s GitLab --verbose
 
 # Skip validation step
 dotnet run -- -i ./ci -o ./output --skip-validation
+
+# Launch with live web dashboard
+dotnet run -- -i ./ci -o ./output -p 5050
 ```
 
 ### Command Line Options
@@ -54,9 +73,27 @@ dotnet run -- -i ./ci -o ./output --skip-validation
 | `--output` | `-o` | **Required.** Output directory for converted workflows |
 | `--source` | `-s` | Filter to specific source type: `GitLab`, `AzureDevOps`, `Jenkins` |
 | `--max-sessions` | `-m` | Maximum parallel Copilot sessions (default: 3) |
+| `--port` | `-p` | Start a Blazor Server dashboard on the given port |
 | `--skip-validation` | | Skip the validation step after conversion |
 | `--verbose` | `-v` | Enable verbose output |
 | `--help` | `-h` | Show help message |
+
+## Live Dashboard
+
+Pass `--port` to launch an interactive Blazor Server dashboard that displays real-time conversion progress:
+
+```bash
+dotnet run -- -i ../samples -o ../output -p 5050
+```
+
+The dashboard shows:
+- Overall progress bar with completion percentage
+- Per-pipeline status cards with phase indicators (converting, validating, writing, complete/failed)
+- Source type badges (GitLab, Azure DevOps, Jenkins)
+- Elapsed time per pipeline and total processing time
+- Error details for failed conversions
+
+The dashboard stays running after processing completes — press Ctrl+C to stop.
 
 ## Supported Pipeline Formats
 
@@ -68,31 +105,44 @@ dotnet run -- -i ./ci -o ./output --skip-validation
 
 ## Output Structure
 
-Converted workflows are saved to:
+Converted workflows are saved to the output directory. When `CreateWorkflowsSubdirectory` is enabled (default), the structure is:
 
 ```
 <output-folder>/
 └── .github/
     └── workflows/
-        ├── gitlab-ci.yml           # Converted workflow
-        ├── gitlab-ci.validation.md # Validation report
-        └── gitlab-ci.improved.yml  # Improved version (if suggestions available)
+        ├── gitlab-ci.yml           # Converted workflow (with improvements applied)
+        └── gitlab-ci.validation.md # Validation report
 ```
+
+When disabled, files are written directly to the output folder. If the validator produces an improved workflow, it overwrites the converted file automatically.
 
 ## Project Structure
 
 ```
 ghcp-action-importer/
+├── ghcp-action-importer.sln            # Solution file
 ├── samples/                            # Sample pipeline files for testing
 │   ├── .gitlab-ci.yml
 │   ├── azure-pipelines.yml
 │   └── Jenkinsfile
-├── src/PipelineConverter/
+├── src/
+│   ├── PipelineConverter.csproj        # Project file (Microsoft.NET.Sdk.Web)
+│   ├── Program.cs                      # CLI entry point & Blazor host
+│   ├── appsettings.json                # Configuration file
 │   ├── Abstractions/
-│   │   └── IPipelineSource.cs          # Interface for pipeline sources
+│   │   └── IPipelineSource.cs          # Interface + PipelineType enum
 │   ├── Agents/
 │   │   ├── pipeline-converter.md       # Converter agent definition
 │   │   └── workflow-validator.md       # Validator agent definition
+│   ├── Components/                     # Blazor Server UI
+│   │   ├── App.razor                   # Root component / HTML host
+│   │   ├── Routes.razor
+│   │   ├── _Imports.razor
+│   │   ├── Layout/
+│   │   │   └── MainLayout.razor
+│   │   └── Pages/
+│   │       └── Dashboard.razor         # Real-time progress dashboard
 │   ├── Configuration/
 │   │   └── AppSettings.cs              # Configuration models
 │   ├── Extensions/
@@ -102,17 +152,23 @@ ghcp-action-importer/
 │   │   ├── PipelineInfo.cs             # Pipeline metadata
 │   │   └── ValidationResult.cs         # Validation result model
 │   ├── Services/
-│   │   ├── CopilotConverterService.cs  # AI conversion service (standalone or session-based)
-│   │   ├── CopilotValidationService.cs # AI validation service (standalone or session-based)
+│   │   ├── CopilotServiceBase.cs       # Base class for Copilot services
+│   │   ├── CopilotConverterService.cs  # AI conversion (standalone or session-based)
+│   │   ├── CopilotValidationService.cs # AI validation (standalone or session-based)
 │   │   ├── ParallelPipelineProcessor.cs # Parallel processing orchestrator
+│   │   ├── PipelineProgressService.cs  # Bridge between processor and Blazor UI
 │   │   ├── PipelineScanner.cs          # Pipeline file discovery
 │   │   └── WorkflowWriter.cs           # Output writer
 │   ├── Sources/
 │   │   ├── AzureDevOpsPipelineSource.cs
 │   │   ├── GitLabPipelineSource.cs
 │   │   └── JenkinsPipelineSource.cs
-│   ├── appsettings.json                # Configuration file
-│   └── Program.cs                      # CLI entry point
+│   ├── Utilities/
+│   │   ├── FileNameGenerator.cs        # Workflow filename generation
+│   │   └── SessionIdSanitizer.cs       # Session ID sanitization
+│   └── wwwroot/
+│       └── css/
+│           └── app.css                 # Dashboard styles
 └── README.md
 ```
 
@@ -123,31 +179,50 @@ The application uses `appsettings.json` for configuration. Settings can be custo
 ```json
 {
   "Paths": {
-    "InputDirectory": "",          // Default input directory (can be overridden by -i)
-    "OutputDirectory": "",         // Default output directory (can be overridden by -o)
-    "SourceFilter": ""             // Filter: GitLab, AzureDevOps, Jenkins (optional)
+    "InputDirectory": "",
+    "OutputDirectory": "",
+    "SourceFilter": ""
   },
   "Copilot": {
-    "Model": "gpt-4.1",            // Model to use (gpt-4.1, claude-sonnet-4.5, etc.)
-    "Timeout": 120,                // Timeout in seconds per operation
-    "MaxParallelSessions": 3       // Number of concurrent Copilot sessions
+    "Model": "gpt-4.1",
+    "Timeout": 120,
+    "MaxParallelSessions": 3,
+    "ConverterAgentFile": "Agents/pipeline-converter.md",
+    "ValidatorAgentFile": "Agents/workflow-validator.md"
   },
   "Conversion": {
-    "CreateWorkflowsSubdirectory": true,   // Create .github/workflows structure
-    "GenerateValidationReports": true,      // Generate .validation.md files
-    "GenerateImprovedWorkflows": true       // Generate .improved.yml files
+    "CreateWorkflowsSubdirectory": true,
+    "GenerateValidationReports": true
   },
   "Validation": {
-    "CheckSyntax": true,           // Validate YAML syntax
-    "CheckSecurity": true,         // Check for security issues
-    "CheckActionVersions": true,   // Verify action versions are pinned
-    "MaxIssuesInConsole": 5        // Max issues shown in console
+    "CheckSyntax": true,
+    "CheckSecurity": true,
+    "CheckActionVersions": true,
+    "MaxIssuesInConsole": 5
   },
   "Logging": {
-    "Verbose": false               // Default verbose setting
+    "Verbose": false
   }
 }
 ```
+
+| Section | Key | Description |
+|---------|-----|-------------|
+| **Paths** | `InputDirectory` | Default input directory (overridden by `-i`) |
+| | `OutputDirectory` | Default output directory (overridden by `-o`) |
+| | `SourceFilter` | Filter: `GitLab`, `AzureDevOps`, `Jenkins` (optional) |
+| **Copilot** | `Model` | Model to use (`gpt-4.1`, `claude-sonnet-4.5`, etc.) |
+| | `Timeout` | Timeout in seconds per Copilot operation |
+| | `MaxParallelSessions` | Number of concurrent Copilot sessions |
+| | `ConverterAgentFile` | Path to converter agent markdown file |
+| | `ValidatorAgentFile` | Path to validator agent markdown file |
+| **Conversion** | `CreateWorkflowsSubdirectory` | Create `.github/workflows` structure in output |
+| | `GenerateValidationReports` | Generate `.validation.md` report files |
+| **Validation** | `CheckSyntax` | Validate YAML syntax |
+| | `CheckSecurity` | Check for security issues |
+| | `CheckActionVersions` | Verify action versions are pinned |
+| | `MaxIssuesInConsole` | Max issues shown in console output |
+| **Logging** | `Verbose` | Enable verbose logging |
 
 ### Parallel Processing
 
@@ -165,7 +240,7 @@ Create `appsettings.local.json` for local overrides (ignored by git).
 
 ## Custom Agents
 
-Custom Copilot agents can be defined using markdown files with YAML front matter. This allows you to customize the conversion and validation behavior without modifying code.
+Custom Copilot agents are defined using markdown files with YAML front matter. This allows you to customize the conversion and validation behavior without modifying code.
 
 ### Agent File Format
 
@@ -196,38 +271,20 @@ You are an expert at converting pipelines...
 
 ### Loading Custom Agents
 
+Agents are loaded automatically from the paths specified in `appsettings.json` (`ConverterAgentFile` and `ValidatorAgentFile`). You can also load them programmatically:
+
 ```csharp
 using PipelineConverter.Extensions;
-using GitHub.Copilot;
+using GitHub.Copilot.SDK;
 
 // Load agent from markdown file
 var agent = CustomAgentConfigExtensions.FromMarkdownFile("Agents/my-agent.md");
 
 // Use with CopilotConverterService
-var service = CopilotConverterService.WithAgentFromFile(settings, "Agents/my-agent.md");
+var service = CopilotConverterService.WithAgentFromFile("gpt-4.1", 120, "Agents/my-agent.md");
 ```
 
-See the included agent files in `src/PipelineConverter/Agents/` for examples.
-
-## Quick Start
-
-Run the converter on the included sample pipelines:
-
-```bash
-cd src/PipelineConverter
-dotnet run -- -i ../../samples -o ../../output -v
-```
-
-This will convert:
-- GitLab CI (`.gitlab-ci.yml`) - Node.js build/test/deploy pipeline
-- Azure DevOps (`azure-pipelines.yml`) - .NET multi-stage pipeline
-- Jenkins (`Jenkinsfile`) - Java Maven with Docker and Kubernetes
-
-Output will be saved to `output/.github/workflows/` with:
-- Converted workflow files (`.yml`)
-- Validation reports (`.validation.md`)
-- Improved versions (`.improved.yml`)
-
+See the included agent files in `src/Agents/` for examples.
 
 ## Extending with New Sources
 
@@ -292,7 +349,7 @@ jobs:
 
 - [GitHub.Copilot.SDK](https://www.nuget.org/packages/GitHub.Copilot.SDK) - GitHub Copilot integration
 - [YamlDotNet](https://www.nuget.org/packages/YamlDotNet) - YAML parsing and validation
-- [Microsoft.Extensions.Configuration](https://www.nuget.org/packages/Microsoft.Extensions.Configuration) - Configuration management
+- [ASP.NET Core (Blazor Server)](https://learn.microsoft.com/aspnet/core/blazor) - Live dashboard UI
 
 ## License
 
