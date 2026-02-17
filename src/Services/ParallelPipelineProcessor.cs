@@ -197,7 +197,7 @@ public sealed class ParallelPipelineProcessor : IAsyncDisposable
             // Phase 1: Conversion
             progress?.Report(new ProcessingProgress(pipeline, ProcessingPhase.Converting));
             
-            var conversionResult = await _converterService.ConvertInSessionAsync(session, pipeline, cancellationToken);
+            var conversionResult = await _converterService.ConvertInSessionAsync(session, pipeline, analysisResult, cancellationToken);
             
             if (!conversionResult.IsSuccess)
             {

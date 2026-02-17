@@ -137,11 +137,13 @@
     }
 
     private static bool IsActivePhase(ProcessingPhase phase) =>
-        phase is ProcessingPhase.Starting or ProcessingPhase.Converting
+        phase is ProcessingPhase.Starting or ProcessingPhase.Analyzing
+              or ProcessingPhase.Converting
               or ProcessingPhase.Validating or ProcessingPhase.Writing;
 
     private static string PhaseIcon(ProcessingPhase phase) => phase switch
     {
+        ProcessingPhase.AnalysisComplete => "✅",
         ProcessingPhase.ConversionComplete => "✅",
         ProcessingPhase.ValidationComplete => "✅",
         ProcessingPhase.Complete => "✅",
@@ -152,6 +154,8 @@
     private static string PhaseLabel(ProcessingPhase phase) => phase switch
     {
         ProcessingPhase.Starting => "Starting…",
+        ProcessingPhase.Analyzing => "Analyzing…",
+        ProcessingPhase.AnalysisComplete => "Analysis complete",
         ProcessingPhase.Converting => "Converting…",
         ProcessingPhase.ConversionComplete => "Conversion complete",
         ProcessingPhase.Validating => "Validating…",
@@ -166,7 +170,7 @@
     {
         ProcessingPhase.Complete => "phase-complete",
         ProcessingPhase.Failed => "phase-failed",
-        ProcessingPhase.Converting or ProcessingPhase.Validating or ProcessingPhase.Writing => "phase-active",
+        ProcessingPhase.Analyzing or ProcessingPhase.Converting or ProcessingPhase.Validating or ProcessingPhase.Writing => "phase-active",
         ProcessingPhase.Starting => "phase-starting",
         _ => ""
     };

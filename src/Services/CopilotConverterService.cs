@@ -98,11 +98,12 @@ public sealed class CopilotConverterService : CopilotServiceBase
     public async Task<ConversionResult> ConvertInSessionAsync(
         CopilotSession session,
         PipelineInfo pipeline,
+        AnalysisResult? analysis = null,
         CancellationToken cancellationToken = default)
     {
         try
         {
-            var prompt = BuildConversionPrompt(pipeline);
+            var prompt = BuildConversionPrompt(pipeline, analysis);
             var response = await session.SendAndWaitAsync(new MessageOptions { Prompt = prompt }, _timeout);
             var responseContent = response?.Data?.Content ?? string.Empty;
 
@@ -124,7 +125,7 @@ public sealed class CopilotConverterService : CopilotServiceBase
         }
     }
 
-    private static string BuildConversionPrompt(PipelineInfo pipeline)
+    private static string BuildConversionPrompt(PipelineInfo pipeline, AnalysisResult? analysis = null)
     {
         var sourceType = pipeline.SourceType switch
         {
@@ -134,7 +135,7 @@ public sealed class CopilotConverterService : CopilotServiceBase
             _ => "CI/CD pipeline"
         };
 
-        return $"""
+        var prompt = $"""
             You are an expert in CI/CD pipeline migration. Convert the following {sourceType} pipeline to a GitHub Actions workflow.
 
             Requirements:
@@ -150,10 +151,41 @@ public sealed class CopilotConverterService : CopilotServiceBase
             ```
             {pipeline.OriginalContent}
             ```
-
-            Respond with ONLY the GitHub Actions workflow YAML, wrapped in ```yaml code blocks.
-            After the YAML, you may add brief notes about any manual adjustments needed.
             """;
+
+        // Inject analysis findings so the converter addresses identified risks
+        if (analysis is { IsSuccess: true })
+        {
+            prompt += $"\n\n    Pre-conversion analysis results (complexity: {analysis.ComplexityScore}):";
+
+            if (analysis.RiskItems?.Count > 0)
+            {
+                prompt += "\n    Identified risks:";
+                foreach (var risk in analysis.RiskItems)
+                {
+                    prompt += $"\n    - [{risk.Severity}] {risk.Category}: {risk.Description}";
+                    if (!string.IsNullOrWhiteSpace(risk.Mitigation))
+                        prompt += $" (mitigation: {risk.Mitigation})";
+                }
+            }
+
+            if (analysis.UnsupportedFeatures?.Count > 0)
+            {
+                prompt += "\n    Unsupported features requiring workarounds:";
+                foreach (var feature in analysis.UnsupportedFeatures)
+                {
+                    prompt += $"\n    - {feature}";
+                }
+            }
+
+            prompt += "\n\n    Pay special attention to the risks and unsupported features listed above.";
+            prompt += "\n    Add TODO comments in the workflow where manual attention is needed for these items.";
+        }
+
+        prompt += "\n\n    Respond with ONLY the GitHub Actions workflow YAML, wrapped in ```yaml code blocks.";
+        prompt += "\n    After the YAML, you may add brief notes about any manual adjustments needed.";
+
+        return prompt;
     }
 
     private static string? ExtractYamlFromResponse(string response)

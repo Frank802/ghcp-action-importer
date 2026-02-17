@@ -348,6 +348,8 @@ async Task RunConversionAsync(
             var status = p.Phase switch
             {
                 ProcessingPhase.Starting => "⏳ Starting...",
+                ProcessingPhase.Analyzing => "🔎 Analyzing...",
+                ProcessingPhase.AnalysisComplete => "✅ Analyzed",
                 ProcessingPhase.Converting => "🔄 Converting...",
                 ProcessingPhase.ConversionComplete => "✅ Converted",
                 ProcessingPhase.Validating => "🔍 Validating...",
