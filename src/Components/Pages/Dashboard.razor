@@ -30,10 +30,20 @@
                     <span class="stat-label">Failed</span>
                 </div>
             }
-            <div class="summary-stat">
-                <span class="stat-value">@FormatDuration(ProgressService.TotalElapsed)</span>
-                <span class="stat-label">Elapsed</span>
-            </div>
+            @if (ProgressService.IsComplete)
+            {
+                <div class="summary-stat">
+                    <span class="stat-value">@FormatDuration(ProgressService.TotalElapsed)</span>
+                    <span class="stat-label">Elapsed</span>
+                </div>
+            }
+            else
+            {
+                <div class="summary-stat processing">
+                    <span class="stat-value"><span class="dots-loader"></span></span>
+                    <span class="stat-label">Processing</span>
+                </div>
+            }
         </div>
 
         <!-- Overall progress bar -->
@@ -41,6 +51,10 @@
             <div class="progress-bar">
                 <div class="progress-fill @(ProgressService.IsComplete ? "done" : "")"
                      style="width: @ProgressPercent()%">
+                    @if (!ProgressService.IsComplete)
+                    {
+                        <div class="progress-shimmer"></div>
+                    }
                 </div>
             </div>
             <span class="progress-text">
@@ -56,9 +70,19 @@
         <div class="pipeline-grid">
             @foreach (var entry in ProgressService.GetAll())
             {
+                var isActive = IsActivePhase(entry.Phase);
+                var isDone = entry.Phase is ProcessingPhase.Complete or ProcessingPhase.Failed;
+
                 <div class="pipeline-card @PhaseClass(entry.Phase)">
                     <div class="card-header">
-                        <span class="card-icon">@PhaseIcon(entry.Phase)</span>
+                        @if (isActive)
+                        {
+                            <span class="card-spinner"></span>
+                        }
+                        else
+                        {
+                            <span class="card-icon">@PhaseIcon(entry.Phase)</span>
+                        }
                         <span class="card-name" title="@entry.Pipeline.FilePath">
                             @System.IO.Path.GetFileName(entry.Pipeline.FilePath)
                         </span>
@@ -68,7 +92,18 @@
                     </div>
                     <div class="card-body">
                         <div class="card-phase">@PhaseLabel(entry.Phase)</div>
-                        <div class="card-elapsed">@FormatDuration(entry.Elapsed)</div>
+                        @if (isDone)
+                        {
+                            <div class="card-elapsed">@FormatDuration(entry.Elapsed)</div>
+                        }
+                        else if (isActive)
+                        {
+                            <div class="card-activity">
+                                <span class="pulse-dot"></span>
+                                <span class="pulse-dot"></span>
+                                <span class="pulse-dot"></span>
+                            </div>
+                        }
                     </div>
                     @if (entry.Phase == ProcessingPhase.Failed && !string.IsNullOrEmpty(entry.Message))
                     {
@@ -81,21 +116,18 @@
 </div>
 
 @code {
-    private System.Timers.Timer? _timer;
+    private Timer? _timer;
 
     protected override void OnInitialized()
     {
-        ProgressService.OnChange += HandleProgressChange;
-
-        // Timer to refresh elapsed-time displays every second
-        _timer = new System.Timers.Timer(1000);
-        _timer.Elapsed += (_, _) => InvokeAsync(StateHasChanged);
-        _timer.Start();
+        // Simple polling every 500ms — works reliably across all Blazor render modes
+        _timer = new Timer(OnPoll, null, 0, 500);
     }
 
-    private void HandleProgressChange()
+    private async void OnPoll(object? state)
     {
-        InvokeAsync(StateHasChanged);
+        try { await InvokeAsync(StateHasChanged); }
+        catch (ObjectDisposedException) { }
     }
 
     private int ProgressPercent()
@@ -104,14 +136,14 @@
         return (int)((ProgressService.CompletedCount + ProgressService.FailedCount) * 100.0 / ProgressService.TotalCount);
     }
 
+    private static bool IsActivePhase(ProcessingPhase phase) =>
+        phase is ProcessingPhase.Starting or ProcessingPhase.Converting
+              or ProcessingPhase.Validating or ProcessingPhase.Writing;
+
     private static string PhaseIcon(ProcessingPhase phase) => phase switch
     {
-        ProcessingPhase.Starting => "⏳",
-        ProcessingPhase.Converting => "🔄",
         ProcessingPhase.ConversionComplete => "✅",
-        ProcessingPhase.Validating => "🔍",
         ProcessingPhase.ValidationComplete => "✅",
-        ProcessingPhase.Writing => "💾",
         ProcessingPhase.Complete => "✅",
         ProcessingPhase.Failed => "❌",
         _ => "…"
@@ -135,6 +167,7 @@
         ProcessingPhase.Complete => "phase-complete",
         ProcessingPhase.Failed => "phase-failed",
         ProcessingPhase.Converting or ProcessingPhase.Validating or ProcessingPhase.Writing => "phase-active",
+        ProcessingPhase.Starting => "phase-starting",
         _ => ""
     };
 
@@ -147,8 +180,6 @@
 
     public void Dispose()
     {
-        ProgressService.OnChange -= HandleProgressChange;
-        _timer?.Stop();
         _timer?.Dispose();
     }
 }
