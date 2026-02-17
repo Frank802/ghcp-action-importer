@@ -22,17 +22,60 @@ A .NET 10 application that converts CI/CD pipelines from GitLab, Azure DevOps, a
 
 ## How It Works
 
-```
-┌─────────────┐     ┌──────────────────┐     ┌─────────────────────────────────────┐     ┌────────────────┐
-│  Input Dir   │────▶│  PipelineScanner │────▶│  ParallelPipelineProcessor          │────▶│  Output Dir    │
-│              │     │                  │     │                                     │     │                │
-│ .gitlab-ci   │     │  Matches files   │     │  ┌───────────┐  ┌───────────────┐  │     │ workflow.yml   │
-│ azure-pipe   │     │  against source  │     │  │  Copilot   │  │   Copilot     │  │     │ validation.md  │
-│ Jenkinsfile  │     │  file patterns   │     │  │  Converter │─▶│   Validator   │  │     │                │
-└─────────────┘     └──────────────────┘     │  │  Session   │  │   (same sess) │  │     └────────────────┘
-                                              │  └───────────┘  └───────────────┘  │
-                                              │  ... parallel sessions (N)         │
-                                              └─────────────────────────────────────┘
+```mermaid
+flowchart TB
+    subgraph Input["📁 Input Directory"]
+        direction LR
+        F1[".gitlab-ci.yml"]
+        F2["azure-pipelines.yml"]
+        F3["Jenkinsfile"]
+    end
+
+    subgraph Scan["🔍 PipelineScanner"]
+        S1["Match file patterns via IPipelineSource"]
+    end
+
+    subgraph Process["⚙️ ParallelPipelineProcessor"]
+        Client["CopilotClient\n(single connection)"]
+
+        subgraph Sessions[" "]
+            direction LR
+            subgraph Sess1["Session 1"]
+                direction TB
+                C1["🔄 Converter Agent"] --> V1["✅ Validator Agent"]
+            end
+            subgraph Sess2["Session 2"]
+                direction TB
+                C2["🔄 Converter Agent"] --> V2["✅ Validator Agent"]
+            end
+            subgraph SessN["Session N"]
+                direction TB
+                CN["🔄 Converter Agent"] --> VN["✅ Validator Agent"]
+            end
+        end
+
+        Client --> Sess1 & Sess2 & SessN
+    end
+
+    subgraph Write["💾 WorkflowWriter"]
+        direction LR
+        W1["workflow.yml\n(improved)"]
+        W2["validation.md"]
+    end
+
+    subgraph Output["📂 Output Directory"]
+        direction LR
+        O1["✅ Converted workflows"]
+        O2["📝 Validation reports"]
+    end
+
+    Input --> Scan --> Process --> Write --> Output
+
+    subgraph Dashboard["📊 Blazor Dashboard (optional)"]
+        D1["Real-time progress UI"]
+    end
+
+    Process -.->|"--port"| Dashboard
 ```
 
 1. **Scan** — `PipelineScanner` walks the input directory and matches files against registered `IPipelineSource` implementations (GitLab, Azure DevOps, Jenkins). Each matched file is read and wrapped in a `PipelineInfo` object.
