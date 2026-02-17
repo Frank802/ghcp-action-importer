@@ -77,6 +77,26 @@ public sealed class WorkflowWriter
     }
 
     /// <summary>
+    /// Writes an analysis report for a pipeline.
+    /// </summary>
+    public async Task<string> WriteAnalysisReportAsync(
+        PipelineInfo pipeline,
+        AnalysisResult analysis,
+        CancellationToken cancellationToken = default)
+    {
+        EnsureDirectoryExists();
+
+        var fileName = FileNameGenerator.GenerateWorkflowFileName(pipeline);
+        var basePath = Path.Combine(WorkflowsDirectory, fileName);
+        var reportPath = Path.ChangeExtension(basePath, ".analysis.md");
+
+        var content = BuildAnalysisReport(pipeline, analysis);
+        await File.WriteAllTextAsync(reportPath, content, cancellationToken);
+
+        return reportPath;
+    }
+
+    /// <summary>
     /// Overwrites the converted workflow file with the improved version from validation.
     /// </summary>
     public async Task OverwriteWithImprovedAsync(
@@ -115,6 +135,106 @@ public sealed class WorkflowWriter
         } while (File.Exists(newPath));
 
         return newPath;
+    }
+
+    private static string BuildAnalysisReport(PipelineInfo pipeline, AnalysisResult analysis)
+    {
+        var builder = new StringBuilder();
+
+        builder.AppendLine("# Pipeline Analysis Report");
+        builder.AppendLine();
+        builder.AppendLine($"**Pipeline:** `{pipeline.Name}`");
+        builder.AppendLine($"**Source Type:** {pipeline.SourceType}");
+        builder.AppendLine($"**Complexity:** {analysis.ComplexityScore}");
+        builder.AppendLine($"**Can Proceed:** {(analysis.CanProceed ? "\u2705 Yes" : "\u274c Blocked")}");
+        builder.AppendLine($"**Generated:** {DateTime.UtcNow:yyyy-MM-dd HH:mm:ss} UTC");
+        builder.AppendLine();
+
+        if (!string.IsNullOrWhiteSpace(analysis.ComplexityJustification))
+        {
+            builder.AppendLine("## Complexity Justification");
+            builder.AppendLine();
+            builder.AppendLine(analysis.ComplexityJustification);
+            builder.AppendLine();
+        }
+
+        if (analysis.StructureBreakdown?.Count > 0)
+        {
+            builder.AppendLine("## Pipeline Structure");
+            builder.AppendLine();
+            foreach (var item in analysis.StructureBreakdown)
+            {
+                builder.AppendLine($"- {item}");
+            }
+            builder.AppendLine();
+        }
+
+        if (analysis.RiskItems?.Count > 0)
+        {
+            builder.AppendLine("## Risks");
+            builder.AppendLine();
+
+            var errors = analysis.RiskItems.Where(r => r.Severity == ValidationSeverity.Error).ToList();
+            var warnings = analysis.RiskItems.Where(r => r.Severity == ValidationSeverity.Warning).ToList();
+            var infos = analysis.RiskItems.Where(r => r.Severity == ValidationSeverity.Info).ToList();
+
+            if (errors.Count > 0)
+            {
+                builder.AppendLine("### Errors");
+                foreach (var risk in errors)
+                {
+                    builder.AppendLine($"- \u274c **{risk.Category}**: {risk.Description}");
+                    if (!string.IsNullOrEmpty(risk.Mitigation))
+                        builder.AppendLine($"  - \ud83d\udca1 {risk.Mitigation}");
+                }
+                builder.AppendLine();
+            }
+
+            if (warnings.Count > 0)
+            {
+                builder.AppendLine("### Warnings");
+                foreach (var risk in warnings)
+                {
+                    builder.AppendLine($"- \u26a0\ufe0f **{risk.Category}**: {risk.Description}");
+                    if (!string.IsNullOrEmpty(risk.Mitigation))
+                        builder.AppendLine($"  - \ud83d\udca1 {risk.Mitigation}");
+                }
+                builder.AppendLine();
+            }
+
+            if (infos.Count > 0)
+            {
+                builder.AppendLine("### Info");
+                foreach (var risk in infos)
+                {
+                    builder.AppendLine($"- \u2139\ufe0f **{risk.Category}**: {risk.Description}");
+                }
+                builder.AppendLine();
+            }
+        }
+
+        if (analysis.UnsupportedFeatures?.Count > 0)
+        {
+            builder.AppendLine("## Unsupported Features");
+            builder.AppendLine();
+            builder.AppendLine("The following features have no direct GitHub Actions equivalent and may require manual workarounds:");
+            builder.AppendLine();
+            foreach (var feature in analysis.UnsupportedFeatures)
+            {
+                builder.AppendLine($"- {feature}");
+            }
+            builder.AppendLine();
+        }
+
+        if (!string.IsNullOrWhiteSpace(analysis.EstimatedEffort))
+        {
+            builder.AppendLine("## Estimated Effort");
+            builder.AppendLine();
+            builder.AppendLine(analysis.EstimatedEffort);
+            builder.AppendLine();
+        }
+
+        return builder.ToString();
     }
 
     private static string BuildValidationReport(string workflowPath, ValidationResult validation)

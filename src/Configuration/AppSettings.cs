@@ -9,6 +9,7 @@ public class AppSettings
     public CopilotSettings Copilot { get; set; } = new();
     public ConversionSettings Conversion { get; set; } = new();
     public ValidationSettings Validation { get; set; } = new();
+    public AnalysisSettings Analysis { get; set; } = new();
     public LoggingSettings Logging { get; set; } = new();
 }
 
@@ -68,6 +69,12 @@ public class CopilotSettings
     /// Relative to the application base directory.
     /// </summary>
     public string ValidatorAgentFile { get; set; } = "Agents/workflow-validator.md";
+
+    /// <summary>
+    /// Path to the custom agent markdown file for pipeline analysis.
+    /// Relative to the application base directory.
+    /// </summary>
+    public string AnalyzerAgentFile { get; set; } = "Agents/pipeline-analyzer.md";
 }
 
 /// <summary>
@@ -110,6 +117,27 @@ public class ValidationSettings
     /// Maximum number of issues to display in console output.
     /// </summary>
     public int MaxIssuesInConsole { get; set; } = 5;
+}
+
+/// <summary>
+/// Settings for pre-conversion pipeline analysis.
+/// </summary>
+public class AnalysisSettings
+{
+    /// <summary>
+    /// Whether to run pre-conversion analysis.
+    /// </summary>
+    public bool Enabled { get; set; } = true;
+
+    /// <summary>
+    /// Whether to block conversion when analysis identifies critical issues.
+    /// </summary>
+    public bool BlockOnCritical { get; set; } = true;
+
+    /// <summary>
+    /// Whether to generate analysis report files.
+    /// </summary>
+    public bool GenerateReports { get; set; } = true;
 }
 
 /// <summary>

@@ -82,6 +82,7 @@ await RunConversionAsync(
     new DirectoryInfo(arguments.OutputPath),
     arguments.SourceFilter,
     arguments.SkipValidation,
+    arguments.SkipAnalysis,
     verbose,
     appSettings,
     progressService,
@@ -135,6 +136,10 @@ static CommandLineArgs ParseArguments(string[] args)
             case "--skip-validation":
                 result.SkipValidation = true;
                 break;
+
+            case "--skip-analysis":
+                result.SkipAnalysis = true;
+                break;
                 
             case "-v":
             case "--verbose":
@@ -179,6 +184,7 @@ Options:
   -m, --max-sessions <n>  Maximum parallel Copilot sessions (default: 3)
   -p, --port <port>       Start a web dashboard on the given port
   --skip-validation       Skip validation step after conversion
+  --skip-analysis         Skip pre-conversion analysis step
   -v, --verbose           Enable verbose output
   -h, --help              Show this help message
 
@@ -201,6 +207,7 @@ async Task RunConversionAsync(
     DirectoryInfo output,
     PipelineType? sourceFilter,
     bool skipValidation,
+    bool skipAnalysis,
     bool verbose,
     AppSettings settings,
     PipelineProgressService? progressService,
@@ -377,6 +384,7 @@ async Task RunConversionAsync(
         pipelines,
         writer,
         skipValidation,
+        skipAnalysis,
         progress,
         cancellationToken);
 
@@ -393,6 +401,7 @@ async Task RunConversionAsync(
 
     var successCount = 0;
     var failCount = 0;
+    var blockedCount = 0;
 
     foreach (var result in results)
     {
@@ -405,6 +414,43 @@ async Task RunConversionAsync(
 
         if (result.Conversion.IsSuccess)
         {
+            // Show analysis results if available
+            if (result.Analysis is not null)
+            {
+                Console.ForegroundColor = result.Analysis.ComplexityScore switch
+                {
+                    ComplexityLevel.Low => ConsoleColor.Green,
+                    ComplexityLevel.Medium => ConsoleColor.Yellow,
+                    ComplexityLevel.High => ConsoleColor.Red,
+                    ComplexityLevel.Critical => ConsoleColor.DarkRed,
+                    _ => ConsoleColor.Gray
+                };
+                Console.WriteLine($"  Analysis: {result.Analysis.ComplexityScore} complexity");
+                Console.ResetColor();
+
+                if (verbose && !string.IsNullOrWhiteSpace(result.Analysis.ComplexityJustification))
+                {
+                    Console.WriteLine($"    {result.Analysis.ComplexityJustification}");
+                }
+
+                if (result.Analysis.RiskItems?.Count > 0)
+                {
+                    var riskErrors = result.Analysis.RiskItems.Count(r => r.Severity == ValidationSeverity.Error);
+                    var riskWarnings = result.Analysis.RiskItems.Count(r => r.Severity == ValidationSeverity.Warning);
+                    Console.WriteLine($"  Risks: {riskErrors} error(s), {riskWarnings} warning(s)");
+                }
+
+                if (result.Analysis.UnsupportedFeatures?.Count > 0)
+                {
+                    Console.WriteLine($"  Unsupported features: {result.Analysis.UnsupportedFeatures.Count}");
+                }
+
+                if (verbose && result.AnalysisReportPath is not null)
+                {
+                    Console.WriteLine($"  Analysis report: {Path.GetRelativePath(output.FullName, result.AnalysisReportPath)}");
+                }
+            }
+
             Console.ForegroundColor = ConsoleColor.Green;
             Console.WriteLine("  Conversion: OK");
             Console.ResetColor();
@@ -491,6 +537,23 @@ async Task RunConversionAsync(
             Console.WriteLine($"  Error: {result.Conversion.ErrorMessage}");
             Console.ResetColor();
 
+            // Show analysis info even for failed/blocked pipelines
+            if (result.Analysis is not null)
+            {
+                if (!result.Analysis.CanProceed)
+                {
+                    Console.ForegroundColor = ConsoleColor.DarkRed;
+                    Console.WriteLine($"  Blocked by analysis: {result.Analysis.ComplexityJustification}");
+                    Console.ResetColor();
+                    blockedCount++;
+                }
+
+                if (verbose && result.AnalysisReportPath is not null)
+                {
+                    Console.WriteLine($"  Analysis report: {Path.GetRelativePath(output.FullName, result.AnalysisReportPath)}");
+                }
+            }
+
             if (verbose && result.Error is not null)
             {
                 Console.WriteLine($"  Stack: {result.Error.StackTrace}");
@@ -516,6 +579,13 @@ async Task RunConversionAsync(
         Console.ResetColor();
     }
 
+    if (blockedCount > 0)
+    {
+        Console.ForegroundColor = ConsoleColor.DarkRed;
+        Console.WriteLine($"  Blocked by analysis: {blockedCount}");
+        Console.ResetColor();
+    }
+
     Console.WriteLine($"  Total time: {totalDuration.TotalSeconds:F1}s");
     Console.WriteLine($"  Parallel sessions: {settings.Copilot.MaxParallelSessions}");
     Console.WriteLine();
@@ -531,6 +601,7 @@ class CommandLineArgs
     public int? MaxSessions { get; set; }
     public int? Port { get; set; }
     public bool SkipValidation { get; set; }
+    public bool SkipAnalysis { get; set; }
     public bool Verbose { get; set; }
     public bool ShowHelp { get; set; }
 }

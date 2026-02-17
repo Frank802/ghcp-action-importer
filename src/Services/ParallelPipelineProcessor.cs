@@ -15,8 +15,10 @@ public record PipelineProcessingResult
 {
     public required PipelineInfo Pipeline { get; init; }
     public required ConversionResult Conversion { get; init; }
+    public AnalysisResult? Analysis { get; init; }
     public ValidationResult? Validation { get; init; }
     public string? WorkflowPath { get; init; }
+    public string? AnalysisReportPath { get; init; }
     public string? ValidationReportPath { get; init; }
     public TimeSpan Duration { get; init; }
     public Exception? Error { get; init; }
@@ -28,6 +30,8 @@ public record PipelineProcessingResult
 public enum ProcessingPhase
 {
     Starting,
+    Analyzing,
+    AnalysisComplete,
     Converting,
     ConversionComplete,
     Validating,
@@ -54,6 +58,7 @@ public sealed class ParallelPipelineProcessor : IAsyncDisposable
     private readonly TimeSpan _timeout;
     private readonly CopilotConverterService _converterService;
     private readonly CopilotValidationService _validationService;
+    private readonly CopilotAnalysisService _analysisService;
     private bool _isStarted;
     private bool _disposed;
 
@@ -67,9 +72,11 @@ public sealed class ParallelPipelineProcessor : IAsyncDisposable
         // Load custom agents from markdown files
         var converterAgent = LoadAgentConfig(settings.Copilot.ConverterAgentFile);
         var validatorAgent = LoadAgentConfig(settings.Copilot.ValidatorAgentFile);
+        var analyzerAgent = LoadAgentConfig(settings.Copilot.AnalyzerAgentFile);
 
         _converterService = new CopilotConverterService(_timeout, converterAgent);
         _validationService = new CopilotValidationService(_timeout, validatorAgent);
+        _analysisService = new CopilotAnalysisService(_timeout, analyzerAgent);
     }
 
     /// <summary>
@@ -90,6 +97,7 @@ public sealed class ParallelPipelineProcessor : IAsyncDisposable
         IReadOnlyList<PipelineInfo> pipelines,
         WorkflowWriter writer,
         bool skipValidation,
+        bool skipAnalysis,
         IProgress<ProcessingProgress>? progress = null,
         CancellationToken cancellationToken = default)
     {
@@ -99,7 +107,7 @@ public sealed class ParallelPipelineProcessor : IAsyncDisposable
         }
 
         var tasks = pipelines.Select(pipeline => 
-            ProcessPipelineAsync(pipeline, writer, skipValidation, progress, cancellationToken));
+            ProcessPipelineAsync(pipeline, writer, skipValidation, skipAnalysis, progress, cancellationToken));
 
         // Add aggregate timeout: per-pipeline timeout * max parallel sessions * 2 (safety buffer)
         var aggregateTimeout = TimeSpan.FromSeconds(_timeout.TotalSeconds * _settings.Copilot.MaxParallelSessions * 2);
@@ -124,6 +132,7 @@ public sealed class ParallelPipelineProcessor : IAsyncDisposable
         PipelineInfo pipeline,
         WorkflowWriter writer,
         bool skipValidation,
+        bool skipAnalysis,
         IProgress<ProcessingProgress>? progress,
         CancellationToken cancellationToken)
     {
@@ -150,6 +159,41 @@ public sealed class ParallelPipelineProcessor : IAsyncDisposable
 
             await using var session = await _client.CreateSessionAsync(sessionConfig, cancellationToken);
 
+            // Phase 0: Analysis (optional, runs before conversion)
+            AnalysisResult? analysisResult = null;
+            string? analysisReportPath = null;
+
+            if (!skipAnalysis && _settings.Analysis.Enabled)
+            {
+                progress?.Report(new ProcessingProgress(pipeline, ProcessingPhase.Analyzing));
+
+                analysisResult = await _analysisService.AnalyzeInSessionAsync(session, pipeline, cancellationToken);
+
+                progress?.Report(new ProcessingProgress(pipeline, ProcessingPhase.AnalysisComplete));
+
+                // Write analysis report
+                if (_settings.Analysis.GenerateReports && analysisResult.IsSuccess)
+                {
+                    analysisReportPath = await writer.WriteAnalysisReportAsync(pipeline, analysisResult, cancellationToken);
+                }
+
+                // Block conversion if critical issues found
+                if (_settings.Analysis.BlockOnCritical && !analysisResult.CanProceed)
+                {
+                    progress?.Report(new ProcessingProgress(pipeline, ProcessingPhase.Failed,
+                        $"Blocked by analysis: {analysisResult.ComplexityJustification}"));
+
+                    return new PipelineProcessingResult
+                    {
+                        Pipeline = pipeline,
+                        Analysis = analysisResult,
+                        Conversion = ConversionResult.Failed($"Conversion blocked by analysis: {analysisResult.ComplexityJustification}"),
+                        AnalysisReportPath = analysisReportPath,
+                        Duration = stopwatch.Elapsed
+                    };
+                }
+            }
+
             // Phase 1: Conversion
             progress?.Report(new ProcessingProgress(pipeline, ProcessingPhase.Converting));
             
@@ -161,7 +205,9 @@ public sealed class ParallelPipelineProcessor : IAsyncDisposable
                 return new PipelineProcessingResult
                 {
                     Pipeline = pipeline,
+                    Analysis = analysisResult,
                     Conversion = conversionResult,
+                    AnalysisReportPath = analysisReportPath,
                     Duration = stopwatch.Elapsed
                 };
             }
@@ -208,9 +254,11 @@ public sealed class ParallelPipelineProcessor : IAsyncDisposable
             return new PipelineProcessingResult
             {
                 Pipeline = pipeline,
+                Analysis = analysisResult,
                 Conversion = conversionResult,
                 Validation = validationResult,
                 WorkflowPath = workflowPath,
+                AnalysisReportPath = analysisReportPath,
                 ValidationReportPath = validationReportPath,
                 Duration = stopwatch.Elapsed
             };
@@ -273,6 +321,7 @@ public sealed class ParallelPipelineProcessor : IAsyncDisposable
         GC.SuppressFinalize(this);
         await _converterService.DisposeAsync();
         await _validationService.DisposeAsync();
+        await _analysisService.DisposeAsync();
         if (_isStarted)
         {
             await _client.DisposeAsync();
