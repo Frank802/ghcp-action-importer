@@ -104,3 +104,4 @@ samples/
 appsettings.local.json
 appsettings.*.json
 !appsettings.json
+.github/aw/*
