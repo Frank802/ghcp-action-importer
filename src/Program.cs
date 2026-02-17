@@ -58,6 +58,7 @@ if (arguments.Port.HasValue)
         .AddInteractiveServerComponents();
     builder.Services.AddSingleton<PipelineProgressService>();
     builder.WebHost.UseUrls($"http://localhost:{arguments.Port.Value}");
+    builder.WebHost.UseStaticWebAssets();
     // Suppress default ASP.NET Core console logging noise
     builder.Logging.SetMinimumLevel(LogLevel.Warning);
 
