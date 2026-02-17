@@ -9,6 +9,7 @@ A .NET 10 application that converts CI/CD pipelines from GitLab, Azure DevOps, a
 
 - **Multi-source support**: Convert pipelines from GitLab CI, Azure DevOps, and Jenkins
 - **AI-powered conversion**: Uses GitHub Copilot to intelligently map pipeline constructs to GitHub Actions
+- **Pre-conversion analysis**: Copilot-powered analysis evaluates pipeline complexity, identifies risks, flags unsupported features, and can block conversion on critical issues
 - **Custom agents**: Define custom Copilot agents via markdown files with YAML front matter
 - **Validation agent**: Custom Copilot agent validates generated workflows for:
   - YAML syntax correctness
@@ -17,12 +18,18 @@ A .NET 10 application that converts CI/CD pipelines from GitLab, Azure DevOps, a
   - Action version pinning
 - **Live web dashboard**: Optional Blazor Server dashboard (`--port`) for real-time conversion progress monitoring
 - **Extensible architecture**: `IPipelineSource` interface allows easy addition of new pipeline sources
-- **Detailed reports**: Generates validation reports with suggestions for improvements
+- **Detailed reports**: Generates analysis and validation reports with suggestions for improvements
 - **Auto-improved workflows**: Validation improvements are applied directly to the output workflow
+- **Analysis-informed conversion**: Analysis findings (risks, unsupported features, complexity) are injected into the conversion prompt for higher-quality output
 
 ## How It Works
 
 ```mermaid
+---
+config:
+  flowchart:
+    wrappingWidth: 300
+---
 flowchart TB
     Input["📁 <b>Input Directory</b><br/>.gitlab-ci.yml · azure-pipelines.yml · Jenkinsfile"]
 
@@ -30,23 +37,23 @@ flowchart TB
 
     Input --> Scan
 
-    subgraph Process["⚙️ ParallelPipelineProcessor"]
+    subgraph Process["⚙️ Pipeline Processor"]
         direction TB
         Client["<b>CopilotClient</b> — single connection, N parallel sessions"]
         Client --> S1 & S2 & SN
 
-        S1["<b>Session 1</b><br/>🔄 Converter Agent → ✅ Validator Agent"]
-        S2["<b>Session 2</b><br/>🔄 Converter Agent → ✅ Validator Agent"]
-        SN["<b>Session N</b><br/>🔄 Converter Agent → ✅ Validator Agent"]
+        S1["<b>Session 1</b><br/>🔬 Analyzer Agent<br/>→ 🔄 Converter Agent<br/>→ ✅ Validator Agent"]
+        S2["<b>Session 2</b><br/>🔬 Analyzer Agent<br/>→ 🔄 Converter Agent<br/>→ ✅ Validator Agent"]
+        SN["<b>Session N</b><br/>🔬 Analyzer Agent<br/>→ 🔄 Converter Agent<br/>→ ✅ Validator Agent"]
     end
 
     Scan --> Process
 
-    Write["💾 <b>WorkflowWriter</b><br/>Saves workflow.yml (with improvements) + validation.md"]
+    Write["💾 <b>WorkflowWriter</b><br/>Saves workflow.yml (with improvements)<br/>+ analysis.md + validation.md"]
 
     Process --> Write
 
-    Output["📂 <b>Output Directory</b><br/>✅ Converted workflows · 📝 Validation reports"]
+    Output["📂 <b>Output Directory</b><br/>✅ Converted workflows<br/>📊 Analysis reports<br/>📝 Validation reports"]
 
     Write --> Output
 
@@ -59,13 +66,15 @@ flowchart TB
 
 2. **Connect** — A single `CopilotClient` is created and connects to GitHub Copilot via the CLI. A `SemaphoreSlim` throttles work to `MaxParallelSessions` concurrent sessions.
 
-3. **Convert** — For each pipeline, a dedicated Copilot session is created with a sanitized session ID. The `CopilotConverterService` sends the pipeline content along with a conversion prompt to a custom **pipeline-converter** agent. The model returns a GitHub Actions workflow in a YAML code block, which is extracted and saved.
+3. **Analyze** — For each pipeline, a dedicated Copilot session is created. The `CopilotAnalysisService` sends the pipeline content to a custom **pipeline-analyzer** agent that evaluates complexity (Low/Medium/High/Critical), identifies risks and unsupported features, and estimates conversion effort. If `BlockOnCritical` is enabled and the analyzer flags a critical block, conversion is skipped for that pipeline.
 
-4. **Validate** — In the *same* session (preserving conversation context), the `CopilotValidationService` sends the original pipeline and converted workflow to a custom **workflow-validator** agent. The validator checks syntax, security, and action pinning, then returns issues, suggestions, and an improved workflow.
+4. **Convert** — In the *same* session (preserving analysis context), the `CopilotConverterService` sends the pipeline content along with a conversion prompt to a custom **pipeline-converter** agent. Analysis findings (risks, unsupported features, complexity) are explicitly injected into the prompt so the converter can add TODO comments and handle edge cases. The model returns a GitHub Actions workflow in a YAML code block, which is extracted and saved.
 
-5. **Write** — `WorkflowWriter` saves the workflow file (overwriting with the improved version if one was produced) and generates a `.validation.md` report.
+5. **Validate** — Still in the same session, the `CopilotValidationService` sends the original pipeline and converted workflow to a custom **workflow-validator** agent. The validator checks syntax, security, and action pinning, then returns issues, suggestions, and an improved workflow.
 
-6. **Report** — Console output summarizes results per pipeline (errors, warnings, suggestions, duration). If `--port` was specified, the Blazor Server dashboard shows live progress throughout.
+6. **Write** — `WorkflowWriter` saves the workflow file (overwriting with the improved version if one was produced), generates an `.analysis.md` report, and generates a `.validation.md` report.
+
+7. **Report** — Console output summarizes results per pipeline (complexity, risks, errors, warnings, suggestions, duration). If `--port` was specified, the Blazor Server dashboard shows live progress throughout all phases including analysis.
 
 ## Prerequisites
 
@@ -108,6 +117,9 @@ dotnet run -- -i ./pipelines -o ./converted -s GitLab --verbose
 # Skip validation step
 dotnet run -- -i ./ci -o ./output --skip-validation
 
+# Skip analysis step
+dotnet run -- -i ./ci -o ./output --skip-analysis
+
 # Launch with live web dashboard
 dotnet run -- -i ./ci -o ./output -p 5050
 ```
@@ -122,6 +134,7 @@ dotnet run -- -i ./ci -o ./output -p 5050
 | `--max-sessions` | `-m` | Maximum parallel Copilot sessions (default: 3) |
 | `--port` | `-p` | Start a Blazor Server dashboard on the given port |
 | `--skip-validation` | | Skip the validation step after conversion |
+| `--skip-analysis` | | Skip the pre-conversion analysis step |
 | `--verbose` | `-v` | Enable verbose output |
 | `--help` | `-h` | Show help message |
 
@@ -135,7 +148,7 @@ dotnet run -- -i ../samples -o ../output -p 5050
 
 The dashboard shows:
 - Overall progress bar with completion percentage
-- Per-pipeline status cards with phase indicators (converting, validating, writing, complete/failed)
+- Per-pipeline status cards with phase indicators (analyzing, converting, validating, writing, complete/failed)
 - Source type badges (GitLab, Azure DevOps, Jenkins)
 - Elapsed time per pipeline and total processing time
 - Error details for failed conversions
@@ -159,6 +172,7 @@ Converted workflows are saved to the output directory. When `CreateWorkflowsSubd
 └── .github/
     └── workflows/
         ├── gitlab-ci.yml           # Converted workflow (with improvements applied)
+        ├── gitlab-ci.analysis.md   # Analysis report (complexity, risks, effort)
         └── gitlab-ci.validation.md # Validation report
 ```
 
@@ -180,6 +194,7 @@ ghcp-action-importer/
 │   ├── Abstractions/
 │   │   └── IPipelineSource.cs          # Interface + PipelineType enum
 │   ├── Agents/
+│   │   ├── pipeline-analyzer.md        # Analyzer agent definition
 │   │   ├── pipeline-converter.md       # Converter agent definition
 │   │   └── workflow-validator.md       # Validator agent definition
 │   ├── Components/                     # Blazor Server UI
@@ -195,11 +210,13 @@ ghcp-action-importer/
 │   ├── Extensions/
 │   │   └── CustomAgentConfigExtensions.cs  # Agent markdown file parser
 │   ├── Models/
+│   │   ├── AnalysisResult.cs           # Analysis result model
 │   │   ├── ConversionResult.cs         # Conversion result model
 │   │   ├── PipelineInfo.cs             # Pipeline metadata
 │   │   └── ValidationResult.cs         # Validation result model
 │   ├── Services/
 │   │   ├── CopilotServiceBase.cs       # Base class for Copilot services
+│   │   ├── CopilotAnalysisService.cs   # AI pre-conversion analysis
 │   │   ├── CopilotConverterService.cs  # AI conversion (standalone or session-based)
 │   │   ├── CopilotValidationService.cs # AI validation (standalone or session-based)
 │   │   ├── ParallelPipelineProcessor.cs # Parallel processing orchestrator
@@ -235,7 +252,13 @@ The application uses `appsettings.json` for configuration. Settings can be custo
     "Timeout": 120,
     "MaxParallelSessions": 3,
     "ConverterAgentFile": "Agents/pipeline-converter.md",
-    "ValidatorAgentFile": "Agents/workflow-validator.md"
+    "ValidatorAgentFile": "Agents/workflow-validator.md",
+    "AnalyzerAgentFile": "Agents/pipeline-analyzer.md"
+  },
+  "Analysis": {
+    "Enabled": true,
+    "BlockOnCritical": true,
+    "GenerateReports": true
   },
   "Conversion": {
     "CreateWorkflowsSubdirectory": true,
@@ -263,6 +286,10 @@ The application uses `appsettings.json` for configuration. Settings can be custo
 | | `MaxParallelSessions` | Number of concurrent Copilot sessions |
 | | `ConverterAgentFile` | Path to converter agent markdown file |
 | | `ValidatorAgentFile` | Path to validator agent markdown file |
+| | `AnalyzerAgentFile` | Path to analyzer agent markdown file |
+| **Analysis** | `Enabled` | Enable pre-conversion analysis (default: `true`) |
+| | `BlockOnCritical` | Block conversion when critical issues found (default: `true`) |
+| | `GenerateReports` | Generate `.analysis.md` report files (default: `true`) |
 | **Conversion** | `CreateWorkflowsSubdirectory` | Create `.github/workflows` structure in output |
 | | `GenerateValidationReports` | Generate `.validation.md` report files |
 | **Validation** | `CheckSyntax` | Validate YAML syntax |
@@ -274,9 +301,9 @@ The application uses `appsettings.json` for configuration. Settings can be custo
 ### Parallel Processing
 
 The converter processes multiple pipelines concurrently using independent Copilot sessions:
-- Each pipeline gets its own session for both conversion and validation
+- Each pipeline gets its own session for analysis, conversion, and validation
 - `MaxParallelSessions` controls concurrency (default: 3)
-- Validation runs in the same session as conversion, maintaining context for better results
+- All three phases (analysis, conversion, validation) run in the same session, maintaining context for better results
 
 When `Paths.InputDirectory` and `Paths.OutputDirectory` are set, you can run the tool without arguments:
 ```bash
