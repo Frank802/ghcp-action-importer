@@ -393,7 +393,14 @@ async Task RunConversionAsync(
     var totalDuration = stopwatch.Elapsed;
 
     // Move past the progress block before printing results
-    Console.SetCursorPosition(0, progressEndLine);
+    try
+    {
+        Console.SetCursorPosition(0, Math.Min(progressEndLine, Console.BufferHeight - 1));
+    }
+    catch
+    {
+        // Fallback if console cursor manipulation isn't supported (e.g. redirected output or small buffer)
+    }
 
     // Display results
     Console.WriteLine();
