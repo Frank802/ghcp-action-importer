@@ -61,23 +61,27 @@ public sealed class ParallelPipelineProcessor : IAsyncDisposable
     private bool _isStarted;
     private bool _disposed;
 
-    public ParallelPipelineProcessor(AppSettings settings)
+    private ParallelPipelineProcessor(
+        AppSettings settings,
+        CustomAgentConfig? converterAgent,
+        CustomAgentConfig? validatorAgent,
+        CustomAgentConfig? analyzerAgent)
     {
         _settings = settings;
         _client = new CopilotClient();
         _sessionSemaphore = new SemaphoreSlim(settings.Copilot.MaxParallelSessions);
         _timeout = TimeSpan.FromSeconds(settings.Copilot.Timeout);
-
-        // Load custom agents from markdown files
-        var converterAgent = LoadAgentConfig(settings.Copilot.ConverterAgentFile);
-        var validatorAgent = LoadAgentConfig(settings.Copilot.ValidatorAgentFile);
-        var analyzerAgent = LoadAgentConfig(settings.Copilot.AnalyzerAgentFile);
-
-        // Each service shares the single CopilotClient but creates its own dedicated
-        // session per pipeline operation, scoped to its specific custom agent.
         _analysisService = new CopilotAnalysisService(_client, settings.Copilot.Model, _timeout, analyzerAgent);
         _converterService = new CopilotConverterService(_client, settings.Copilot.Model, _timeout, converterAgent);
         _validationService = new CopilotValidationService(_client, settings.Copilot.Model, _timeout, validatorAgent);
+    }
+
+    public static async Task<ParallelPipelineProcessor> CreateAsync(AppSettings settings)
+    {
+        var converterAgent = await LoadAgentConfigAsync(settings.Copilot.ConverterAgentFile);
+        var validatorAgent = await LoadAgentConfigAsync(settings.Copilot.ValidatorAgentFile);
+        var analyzerAgent = await LoadAgentConfigAsync(settings.Copilot.AnalyzerAgentFile);
+        return new ParallelPipelineProcessor(settings, converterAgent, validatorAgent, analyzerAgent);
     }
 
     /// <summary>
@@ -274,7 +278,7 @@ public sealed class ParallelPipelineProcessor : IAsyncDisposable
     /// Loads a CustomAgentConfig from a markdown file, returning null if the file doesn't exist.
     /// Validates that the resolved path is under the application base directory.
     /// </summary>
-    private static CustomAgentConfig? LoadAgentConfig(string? agentFilePath)
+    private static async Task<CustomAgentConfig?> LoadAgentConfigAsync(string? agentFilePath)
     {
         if (string.IsNullOrWhiteSpace(agentFilePath))
             return null;
@@ -296,7 +300,7 @@ public sealed class ParallelPipelineProcessor : IAsyncDisposable
         if (!File.Exists(fullPath))
             return null;
 
-        return CustomAgentConfigExtensions.FromMarkdownFile(fullPath);
+        return await CustomAgentConfigExtensions.FromMarkdownFileAsync(fullPath);
     }
 
     public async ValueTask DisposeAsync()

@@ -294,7 +294,7 @@ async Task RunConversionAsync(
     // Initialize parallel processor
     Console.WriteLine($"Initializing GitHub Copilot (max {settings.Copilot.MaxParallelSessions} parallel sessions)...");
     
-    await using var processor = new ParallelPipelineProcessor(settings);
+    await using var processor = await ParallelPipelineProcessor.CreateAsync(settings);
 
     try
     {
