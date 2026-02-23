@@ -337,7 +337,7 @@ async Task RunConversionAsync(
     }
     var progressEndLine = Console.CursorTop;
 
-    var progress = new Progress<ProcessingProgress>(p =>
+    var progress = new SynchronousProgress<ProcessingProgress>(p =>
     {
         // Push update to web dashboard (if running)
         progressService?.Update(p);
@@ -352,7 +352,7 @@ async Task RunConversionAsync(
                 ProcessingPhase.AnalysisComplete => "✅ Analyzed",
                 ProcessingPhase.Converting => "🔄 Converting...",
                 ProcessingPhase.ConversionComplete => "✅ Converted",
-                ProcessingPhase.Validating => "🔍 Validating...",
+                ProcessingPhase.Validating => "🛡️ Validating...",
                 ProcessingPhase.ValidationComplete => "✅ Validated",
                 ProcessingPhase.Writing => "💾 Writing...",
                 ProcessingPhase.Complete => "✅ Complete",
@@ -613,4 +613,14 @@ class CommandLineArgs
     public bool SkipAnalysis { get; set; }
     public bool Verbose { get; set; }
     public bool ShowHelp { get; set; }
+}
+
+/// <summary>
+/// IProgress implementation that invokes the handler synchronously on the calling thread,
+/// avoiding the race condition where Progress&lt;T&gt; posts callbacks to the ThreadPool
+/// that can fire after processing completes.
+/// </summary>
+class SynchronousProgress<T>(Action<T> handler) : IProgress<T>
+{
+    public void Report(T value) => handler(value);
 }

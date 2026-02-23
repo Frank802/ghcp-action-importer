@@ -143,9 +143,14 @@
 
     private static string PhaseIcon(ProcessingPhase phase) => phase switch
     {
+        ProcessingPhase.Starting => "⏳",
+        ProcessingPhase.Analyzing => "🔎",
         ProcessingPhase.AnalysisComplete => "✅",
+        ProcessingPhase.Converting => "🔄",
         ProcessingPhase.ConversionComplete => "✅",
+        ProcessingPhase.Validating => "🛡️",
         ProcessingPhase.ValidationComplete => "✅",
+        ProcessingPhase.Writing => "💾",
         ProcessingPhase.Complete => "✅",
         ProcessingPhase.Failed => "❌",
         _ => "…"
