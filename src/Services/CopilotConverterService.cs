@@ -71,7 +71,7 @@ public sealed class CopilotConverterService : CopilotServiceBase
             var prompt = BuildConversionPrompt(pipeline);
             
             var response = await session.SendAndWaitAsync(new MessageOptions { Prompt = prompt }, _timeout);
-            var responseContent = response?.Data?.Content ?? string.Empty;
+            string responseContent = (string)(response?.Data?.Content ?? "");
 
             var workflowYaml = ExtractYamlFromResponse(responseContent);
             
@@ -105,7 +105,7 @@ public sealed class CopilotConverterService : CopilotServiceBase
         {
             var prompt = BuildConversionPrompt(pipeline, analysis);
             var response = await session.SendAndWaitAsync(new MessageOptions { Prompt = prompt }, _timeout);
-            var responseContent = response?.Data?.Content ?? string.Empty;
+            string responseContent = (string)(response?.Data?.Content ?? "");
 
             var workflowYaml = ExtractYamlFromResponse(responseContent);
             

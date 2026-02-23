@@ -92,7 +92,7 @@ public sealed class CopilotValidationService : CopilotServiceBase
 
             var prompt = BuildValidationPrompt(originalPipeline, generatedWorkflow);
             var response = await session.SendAndWaitAsync(new MessageOptions { Prompt = prompt }, _timeout);
-            var responseContent = response?.Data?.Content ?? string.Empty;
+            string responseContent = (string)(response?.Data?.Content ?? "");
 
             // Parse Copilot's feedback
             var (_, copilotIssues) = ParseCopilotValidation(responseContent);
@@ -155,7 +155,7 @@ public sealed class CopilotValidationService : CopilotServiceBase
             // Use existing session for semantic validation (maintains context from conversion)
             var prompt = BuildValidationPrompt(originalPipeline, generatedWorkflow);
             var response = await session.SendAndWaitAsync(new MessageOptions { Prompt = prompt }, _timeout);
-            var responseContent = response?.Data?.Content ?? string.Empty;
+            string responseContent = (string)(response?.Data?.Content ?? "");
 
             // Parse Copilot's feedback
             var (_, copilotIssues) = ParseCopilotValidation(responseContent);

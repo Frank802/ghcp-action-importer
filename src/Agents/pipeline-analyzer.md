@@ -37,7 +37,10 @@ When analyzing a pipeline, you must:
 
 ## Output Format
 
-You MUST respond using EXACTLY this structured format with the section markers shown below. Do not deviate from these markers.
+You MUST respond using EXACTLY this structured format with the section markers shown below. Do not deviate from these markers and do not skip any sections, even if they are empty. Always include all sections in your response.
+
+### SUMMARY
+A brief 2-3 sentence overview of the pipeline: what it does, what platform it targets, and the key takeaway for conversion readiness.
 
 ### COMPLEXITY
 [Low|Medium|High|Critical]

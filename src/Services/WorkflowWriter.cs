@@ -150,6 +150,14 @@ public sealed class WorkflowWriter
         builder.AppendLine($"**Generated:** {DateTime.UtcNow:yyyy-MM-dd HH:mm:ss} UTC");
         builder.AppendLine();
 
+        if (!string.IsNullOrWhiteSpace(analysis.Summary))
+        {
+            builder.AppendLine("## Summary");
+            builder.AppendLine();
+            builder.AppendLine(analysis.Summary);
+            builder.AppendLine();
+        }
+
         if (!string.IsNullOrWhiteSpace(analysis.ComplexityJustification))
         {
             builder.AppendLine("## Complexity Justification");

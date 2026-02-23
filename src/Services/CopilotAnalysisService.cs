@@ -49,7 +49,7 @@ public sealed class CopilotAnalysisService : CopilotServiceBase
         {
             var prompt = BuildAnalysisPrompt(pipeline);
             var response = await session.SendAndWaitAsync(new MessageOptions { Prompt = prompt }, _timeout);
-            var responseContent = response?.Data?.Content ?? string.Empty;
+            string responseContent = (string)(response?.Data?.Content ?? "");
 
             if (string.IsNullOrWhiteSpace(responseContent))
             {
@@ -87,12 +87,14 @@ public sealed class CopilotAnalysisService : CopilotServiceBase
             {pipeline.OriginalContent}
             ```
 
-            Respond using EXACTLY the structured format with section markers as specified in your instructions.
+            You MUST respond using EXACTLY this structured format with the section markers as specified in your instructions.
+            Do not deviate from the specified markers and do not skip any sections.
             """;
     }
 
     private static AnalysisResult ParseAnalysisResponse(string response)
     {
+        var summary = ParseSection(response, "SUMMARY");
         var complexity = ParseComplexity(response);
         var complexityJustification = ParseSection(response, "COMPLEXITY_JUSTIFICATION");
         var structureBreakdown = ParseListSection(response, "STRUCTURE");
@@ -117,6 +119,7 @@ public sealed class CopilotAnalysisService : CopilotServiceBase
             riskItems,
             unsupportedFeatures,
             estimatedEffort,
+            summary,
             response);
     }
 

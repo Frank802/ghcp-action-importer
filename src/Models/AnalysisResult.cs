@@ -83,6 +83,11 @@ public record AnalysisResult
     public string? EstimatedEffort { get; init; }
 
     /// <summary>
+    /// Gets a brief overview summary of the pipeline analysis.
+    /// </summary>
+    public string? Summary { get; init; }
+
+    /// <summary>
     /// Gets the full raw analysis text from Copilot.
     /// </summary>
     public string? RawAnalysis { get; init; }
@@ -102,6 +107,7 @@ public record AnalysisResult
         IReadOnlyList<AnalysisRisk>? riskItems,
         IReadOnlyList<string>? unsupportedFeatures,
         string? estimatedEffort,
+        string? summary,
         string rawAnalysis) => new()
     {
         IsSuccess = true,
@@ -112,6 +118,7 @@ public record AnalysisResult
         RiskItems = riskItems,
         UnsupportedFeatures = unsupportedFeatures,
         EstimatedEffort = estimatedEffort,
+        Summary = summary,
         RawAnalysis = rawAnalysis
     };
 
