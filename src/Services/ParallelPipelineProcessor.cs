@@ -4,7 +4,6 @@ using PipelineConverter.Abstractions;
 using PipelineConverter.Configuration;
 using PipelineConverter.Extensions;
 using PipelineConverter.Models;
-using PipelineConverter.Utilities;
 
 namespace PipelineConverter.Services;
 
@@ -74,9 +73,11 @@ public sealed class ParallelPipelineProcessor : IAsyncDisposable
         var validatorAgent = LoadAgentConfig(settings.Copilot.ValidatorAgentFile);
         var analyzerAgent = LoadAgentConfig(settings.Copilot.AnalyzerAgentFile);
 
-        _converterService = new CopilotConverterService(_timeout, converterAgent);
-        _validationService = new CopilotValidationService(_timeout, validatorAgent);
-        _analysisService = new CopilotAnalysisService(_timeout, analyzerAgent);
+        // Each service shares the single CopilotClient but creates its own dedicated
+        // session per pipeline operation, scoped to its specific custom agent.
+        _analysisService = new CopilotAnalysisService(_client, settings.Copilot.Model, _timeout, analyzerAgent);
+        _converterService = new CopilotConverterService(_client, settings.Copilot.Model, _timeout, converterAgent);
+        _validationService = new CopilotValidationService(_client, settings.Copilot.Model, _timeout, validatorAgent);
     }
 
     /// <summary>
@@ -145,20 +146,6 @@ public sealed class ParallelPipelineProcessor : IAsyncDisposable
         {
             progress?.Report(new ProcessingProgress(pipeline, ProcessingPhase.Starting));
 
-            // Create a session for this pipeline with a unique ID
-            // Sanitize name to only contain alphanumeric and hyphens (no dots, spaces, etc.)
-            var sanitizedName = SessionIdSanitizer.SanitizeSessionId(pipeline.Name);
-            var sessionConfig = new SessionConfig
-            {
-                SessionId = $"pipeline-{sanitizedName}-{Guid.NewGuid():N}",
-                Model = _settings.Copilot.Model,
-                CustomAgents = _converterService.CustomAgent is not null
-                    ? [_converterService.CustomAgent]
-                    : null
-            };
-
-            await using var session = await _client.CreateSessionAsync(sessionConfig, cancellationToken);
-
             // Phase 0: Analysis (optional, runs before conversion)
             AnalysisResult? analysisResult = null;
             string? analysisReportPath = null;
@@ -167,7 +154,7 @@ public sealed class ParallelPipelineProcessor : IAsyncDisposable
             {
                 progress?.Report(new ProcessingProgress(pipeline, ProcessingPhase.Analyzing));
 
-                analysisResult = await _analysisService.AnalyzeInSessionAsync(session, pipeline, cancellationToken);
+                analysisResult = await _analysisService.AnalyzeAsync(pipeline, cancellationToken);
 
                 progress?.Report(new ProcessingProgress(pipeline, ProcessingPhase.AnalysisComplete));
 
@@ -197,7 +184,7 @@ public sealed class ParallelPipelineProcessor : IAsyncDisposable
             // Phase 1: Conversion
             progress?.Report(new ProcessingProgress(pipeline, ProcessingPhase.Converting));
             
-            var conversionResult = await _converterService.ConvertInSessionAsync(session, pipeline, analysisResult, cancellationToken);
+            var conversionResult = await _converterService.ConvertAsync(pipeline, analysisResult, cancellationToken);
             
             if (!conversionResult.IsSuccess)
             {
@@ -226,10 +213,9 @@ public sealed class ParallelPipelineProcessor : IAsyncDisposable
             {
                 progress?.Report(new ProcessingProgress(pipeline, ProcessingPhase.Validating));
                 
-                validationResult = await _validationService.ValidateInSessionAsync(
-                    session, 
-                    pipeline.OriginalContent, 
-                    conversionResult.WorkflowYaml!, 
+                validationResult = await _validationService.ValidateAsync(
+                    pipeline,
+                    conversionResult.WorkflowYaml!,
                     cancellationToken);
 
                 progress?.Report(new ProcessingProgress(pipeline, ProcessingPhase.ValidationComplete));

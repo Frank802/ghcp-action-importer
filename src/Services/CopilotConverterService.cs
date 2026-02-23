@@ -1,6 +1,5 @@
 using GitHub.Copilot.SDK;
 using PipelineConverter.Abstractions;
-using PipelineConverter.Extensions;
 using PipelineConverter.Models;
 using PipelineConverter.Utilities;
 
@@ -8,107 +7,32 @@ namespace PipelineConverter.Services;
 
 /// <summary>
 /// Service that uses GitHub Copilot SDK to convert pipelines to GitHub Actions.
-/// Can be used standalone or within an existing Copilot session.
 /// </summary>
 public sealed class CopilotConverterService : CopilotServiceBase
 {
-    /// <summary>
-    /// Creates a standalone converter service with its own Copilot client.
-    /// </summary>
-    public CopilotConverterService(string model = "gpt-4.1", int timeoutSeconds = 120, CustomAgentConfig? customAgent = null)
-        : base(model, timeoutSeconds, customAgent)
+    public CopilotConverterService(CopilotClient client, string model, TimeSpan timeout, CustomAgentConfig? customAgent = null)
+        : base(client, model, timeout, customAgent)
     {
     }
 
     /// <summary>
-    /// Creates a converter service that uses an external client (for session reuse).
+    /// Converts a pipeline to a GitHub Actions workflow in a dedicated session scoped to
+    /// this service's custom agent.
     /// </summary>
-    public CopilotConverterService(TimeSpan timeout, CustomAgentConfig? customAgent = null)
-        : base(timeout, customAgent)
-    {
-    }
-
-    /// <summary>
-    /// Creates a CopilotConverterService with a custom agent loaded from a markdown file.
-    /// </summary>
-    /// <param name="model">The model to use.</param>
-    /// <param name="timeoutSeconds">Timeout in seconds for API calls.</param>
-    /// <param name="agentFilePath">Path to the agent markdown file.</param>
-    /// <returns>A configured CopilotConverterService instance.</returns>
-    public static CopilotConverterService WithAgentFromFile(string model, int timeoutSeconds, string agentFilePath)
-    {
-        return CreateWithAgentFromFile(model, timeoutSeconds, agentFilePath, 
-            (m, t, a) => new CopilotConverterService(m, t, a));
-    }
-
-    /// <summary>
-    /// Converts a pipeline to GitHub Actions workflow using Copilot (creates new session).
-    /// </summary>
-    public async Task<ConversionResult> ConvertAsync(PipelineInfo pipeline, CancellationToken cancellationToken = default)
-    {
-        if (_client == null)
-        {
-            throw new InvalidOperationException("Standalone conversion requires a CopilotClient. Use ConvertInSessionAsync for session-based conversion.");
-        }
-
-        if (!_isStarted)
-        {
-            await StartAsync(cancellationToken);
-        }
-
-        try
-        {
-            var sessionConfig = new SessionConfig { Model = _model };
-            
-            // Add custom agent if configured
-            if (CustomAgent is not null)
-            {
-                sessionConfig.CustomAgents = [CustomAgent];
-            }
-
-            await using var session = await _client.CreateSessionAsync(sessionConfig, cancellationToken);
-
-            var prompt = BuildConversionPrompt(pipeline);
-            
-            var response = await session.SendAndWaitAsync(new MessageOptions { Prompt = prompt }, _timeout);
-            string responseContent = (string)(response?.Data?.Content ?? "");
-
-            var workflowYaml = ExtractYamlFromResponse(responseContent);
-            
-            if (string.IsNullOrWhiteSpace(workflowYaml))
-            {
-                return ConversionResult.Failed("Failed to extract valid GitHub Actions workflow from response.");
-            }
-
-            var suggestedFileName = FileNameGenerator.GenerateWorkflowFileName(pipeline);
-            var notes = ExtractNotesFromResponse(responseContent);
-
-            return ConversionResult.Success(workflowYaml, suggestedFileName, notes);
-        }
-        catch (Exception ex)
-        {
-            return ConversionResult.Failed($"Conversion failed: {ex.Message}");
-        }
-    }
-
-    /// <summary>
-    /// Converts a pipeline to GitHub Actions workflow within an existing session.
-    /// This allows the session to be reused for subsequent validation.
-    /// </summary>
-    public async Task<ConversionResult> ConvertInSessionAsync(
-        CopilotSession session,
+    public async Task<ConversionResult> ConvertAsync(
         PipelineInfo pipeline,
         AnalysisResult? analysis = null,
         CancellationToken cancellationToken = default)
     {
         try
         {
+            await using var session = await CreateSessionAsync(pipeline.Name, cancellationToken);
             var prompt = BuildConversionPrompt(pipeline, analysis);
             var response = await session.SendAndWaitAsync(new MessageOptions { Prompt = prompt }, _timeout);
             string responseContent = (string)(response?.Data?.Content ?? "");
 
             var workflowYaml = ExtractYamlFromResponse(responseContent);
-            
+
             if (string.IsNullOrWhiteSpace(workflowYaml))
             {
                 return ConversionResult.Failed("Failed to extract valid GitHub Actions workflow from response.");

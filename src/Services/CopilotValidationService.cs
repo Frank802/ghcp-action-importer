@@ -1,7 +1,6 @@
 using System.ComponentModel;
 using GitHub.Copilot.SDK;
 using Microsoft.Extensions.AI;
-using PipelineConverter.Extensions;
 using PipelineConverter.Models;
 using YamlDotNet.Core;
 using YamlDotNet.Serialization;
@@ -10,168 +9,54 @@ namespace PipelineConverter.Services;
 
 /// <summary>
 /// Service that uses GitHub Copilot SDK to validate GitHub Actions workflows.
-/// Can be used standalone or within an existing Copilot session.
 /// </summary>
 public sealed class CopilotValidationService : CopilotServiceBase
 {
     private readonly List<AIFunction> _tools;
 
-    /// <summary>
-    /// Creates a standalone validation service with its own Copilot client.
-    /// </summary>
-    public CopilotValidationService(string model = "gpt-4.1", int timeoutSeconds = 120, CustomAgentConfig? customAgent = null)
-        : base(model, timeoutSeconds, customAgent)
+    public CopilotValidationService(CopilotClient client, string model, TimeSpan timeout, CustomAgentConfig? customAgent = null)
+        : base(client, model, timeout, customAgent)
     {
         _tools = CreateValidationTools();
     }
 
     /// <summary>
-    /// Creates a validation service that uses an external client (for session reuse).
-    /// </summary>
-    public CopilotValidationService(TimeSpan timeout, CustomAgentConfig? customAgent = null)
-        : base(timeout, customAgent)
-    {
-        _tools = CreateValidationTools();
-    }
-
-    /// <summary>
-    /// Creates a CopilotValidationService with a custom agent loaded from a markdown file.
-    /// </summary>
-    public static CopilotValidationService WithAgentFromFile(string model, int timeoutSeconds, string agentFilePath)
-    {
-        return CreateWithAgentFromFile(model, timeoutSeconds, agentFilePath,
-            (m, t, a) => new CopilotValidationService(m, t, a));
-    }
-
-    /// <summary>
-    /// Validates a converted GitHub Actions workflow using a new session.
+    /// Validates a converted GitHub Actions workflow in a dedicated session scoped to
+    /// this service's custom agent.
     /// </summary>
     public async Task<ValidationResult> ValidateAsync(
-        string originalPipeline,
-        string generatedWorkflow,
-        CancellationToken cancellationToken = default)
-    {
-        if (_client == null)
-        {
-            throw new InvalidOperationException("Standalone validation requires a CopilotClient. Use ValidateInSessionAsync for session-based validation.");
-        }
-
-        if (!_isStarted)
-        {
-            await StartAsync(cancellationToken);
-        }
-
-        var issues = new List<ValidationIssue>();
-
-        // First, perform local syntax validation
-        var syntaxResult = ValidateYamlSyntax(generatedWorkflow);
-        if (!syntaxResult.IsValid)
-        {
-            issues.AddRange(syntaxResult.Issues);
-        }
-
-        // Check for common GitHub Actions structure issues
-        var structureIssues = ValidateWorkflowStructure(generatedWorkflow);
-        issues.AddRange(structureIssues);
-
-        try
-        {
-            // Use Copilot for semantic validation and improvements
-            var sessionConfig = new SessionConfig 
-            { 
-                Model = _model,
-                Tools = _tools 
-            };
-
-            if (CustomAgent is not null)
-            {
-                sessionConfig.CustomAgents = [CustomAgent];
-            }
-
-            await using var session = await _client.CreateSessionAsync(sessionConfig, cancellationToken);
-
-            var prompt = BuildValidationPrompt(originalPipeline, generatedWorkflow);
-            var response = await session.SendAndWaitAsync(new MessageOptions { Prompt = prompt }, _timeout);
-            string responseContent = (string)(response?.Data?.Content ?? "");
-
-            // Parse Copilot's feedback
-            var (_, copilotIssues) = ParseCopilotValidation(responseContent);
-            issues.AddRange(copilotIssues);
-
-            var suggestions = ExtractSuggestions(responseContent);
-            var improvedWorkflow = ExtractImprovedWorkflow(responseContent);
-            var improvementSummary = ExtractImprovementSummary(responseContent);
-
-            return new ValidationResult
-            {
-                IsValid = !issues.Exists(i => i.Severity == ValidationSeverity.Error),
-                Issues = issues,
-                Suggestions = suggestions,
-                ImprovedWorkflow = improvedWorkflow,
-                ImprovementSummary = improvementSummary
-            };
-        }
-        catch (Exception ex)
-        {
-            issues.Add(new ValidationIssue
-            {
-                Severity = ValidationSeverity.Warning,
-                Message = $"Could not complete AI validation: {ex.Message}"
-            });
-
-            return new ValidationResult
-            {
-                IsValid = !issues.Exists(i => i.Severity == ValidationSeverity.Error),
-                Issues = issues
-            };
-        }
-    }
-
-    /// <summary>
-    /// Validates a converted GitHub Actions workflow within an existing session.
-    /// This maintains conversation context from the conversion step.
-    /// </summary>
-    public async Task<ValidationResult> ValidateInSessionAsync(
-        CopilotSession session,
-        string originalPipeline,
+        PipelineInfo pipeline,
         string generatedWorkflow,
         CancellationToken cancellationToken = default)
     {
         var issues = new List<ValidationIssue>();
 
-        // First, perform local syntax validation
+        // Local syntax + structure validation (fast, no session needed)
         var syntaxResult = ValidateYamlSyntax(generatedWorkflow);
         if (!syntaxResult.IsValid)
-        {
             issues.AddRange(syntaxResult.Issues);
-        }
 
-        // Check for common GitHub Actions structure issues
-        var structureIssues = ValidateWorkflowStructure(generatedWorkflow);
-        issues.AddRange(structureIssues);
+        issues.AddRange(ValidateWorkflowStructure(generatedWorkflow));
 
         try
         {
-            // Use existing session for semantic validation (maintains context from conversion)
-            var prompt = BuildValidationPrompt(originalPipeline, generatedWorkflow);
+            await using var session = await CreateSessionAsync(pipeline.Name, cancellationToken,
+                config => config.Tools = _tools);
+
+            var prompt = BuildValidationPrompt(pipeline.OriginalContent, generatedWorkflow);
             var response = await session.SendAndWaitAsync(new MessageOptions { Prompt = prompt }, _timeout);
             string responseContent = (string)(response?.Data?.Content ?? "");
 
-            // Parse Copilot's feedback
             var (_, copilotIssues) = ParseCopilotValidation(responseContent);
             issues.AddRange(copilotIssues);
-
-            var suggestions = ExtractSuggestions(responseContent);
-            var improvedWorkflow = ExtractImprovedWorkflow(responseContent);
-            var improvementSummary = ExtractImprovementSummary(responseContent);
 
             return new ValidationResult
             {
                 IsValid = !issues.Exists(i => i.Severity == ValidationSeverity.Error),
                 Issues = issues,
-                Suggestions = suggestions,
-                ImprovedWorkflow = improvedWorkflow,
-                ImprovementSummary = improvementSummary
+                Suggestions = ExtractSuggestions(responseContent),
+                ImprovedWorkflow = ExtractImprovedWorkflow(responseContent),
+                ImprovementSummary = ExtractImprovementSummary(responseContent)
             };
         }
         catch (Exception ex)

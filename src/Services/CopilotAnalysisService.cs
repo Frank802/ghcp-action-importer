@@ -1,6 +1,5 @@
 using GitHub.Copilot.SDK;
 using PipelineConverter.Abstractions;
-using PipelineConverter.Extensions;
 using PipelineConverter.Models;
 
 namespace PipelineConverter.Services;
@@ -11,42 +10,21 @@ namespace PipelineConverter.Services;
 /// </summary>
 public sealed class CopilotAnalysisService : CopilotServiceBase
 {
-    /// <summary>
-    /// Creates a standalone analysis service with its own Copilot client.
-    /// </summary>
-    public CopilotAnalysisService(string model = "gpt-4.1", int timeoutSeconds = 120, CustomAgentConfig? customAgent = null)
-        : base(model, timeoutSeconds, customAgent)
+    public CopilotAnalysisService(CopilotClient client, string model, TimeSpan timeout, CustomAgentConfig? customAgent = null)
+        : base(client, model, timeout, customAgent)
     {
     }
 
     /// <summary>
-    /// Creates an analysis service that uses an external client (for session reuse).
+    /// Analyzes a pipeline in a dedicated session scoped to this service's custom agent.
     /// </summary>
-    public CopilotAnalysisService(TimeSpan timeout, CustomAgentConfig? customAgent = null)
-        : base(timeout, customAgent)
-    {
-    }
-
-    /// <summary>
-    /// Creates a CopilotAnalysisService with a custom agent loaded from a markdown file.
-    /// </summary>
-    public static CopilotAnalysisService WithAgentFromFile(string model, int timeoutSeconds, string agentFilePath)
-    {
-        return CreateWithAgentFromFile(model, timeoutSeconds, agentFilePath,
-            (m, t, a) => new CopilotAnalysisService(m, t, a));
-    }
-
-    /// <summary>
-    /// Analyzes a pipeline within an existing session.
-    /// This allows the session to be reused for subsequent conversion and validation.
-    /// </summary>
-    public async Task<AnalysisResult> AnalyzeInSessionAsync(
-        CopilotSession session,
+    public async Task<AnalysisResult> AnalyzeAsync(
         PipelineInfo pipeline,
         CancellationToken cancellationToken = default)
     {
         try
         {
+            await using var session = await CreateSessionAsync(pipeline.Name, cancellationToken);
             var prompt = BuildAnalysisPrompt(pipeline);
             var response = await session.SendAndWaitAsync(new MessageOptions { Prompt = prompt }, _timeout);
             string responseContent = (string)(response?.Data?.Content ?? "");

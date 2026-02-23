@@ -11,6 +11,7 @@ public sealed class WorkflowWriter
 {
     private readonly string _outputDirectory;
     private readonly bool _createWorkflowsSubdir;
+    private readonly Lock _fileWriteLock = new();
 
     /// <summary>
     /// Initializes a new WorkflowWriter.
@@ -115,26 +116,29 @@ public sealed class WorkflowWriter
         }
     }
 
-    private static string GetUniqueFilePath(string filePath)
+    private string GetUniqueFilePath(string filePath)
     {
-        if (!File.Exists(filePath))
+        lock (_fileWriteLock)
         {
-            return filePath;
+            if (!File.Exists(filePath))
+            {
+                return filePath;
+            }
+
+            var directory = Path.GetDirectoryName(filePath)!;
+            var fileName = Path.GetFileNameWithoutExtension(filePath);
+            var extension = Path.GetExtension(filePath);
+
+            var counter = 1;
+            string newPath;
+            do
+            {
+                newPath = Path.Combine(directory, $"{fileName}-{counter}{extension}");
+                counter++;
+            } while (File.Exists(newPath));
+
+            return newPath;
         }
-
-        var directory = Path.GetDirectoryName(filePath)!;
-        var fileName = Path.GetFileNameWithoutExtension(filePath);
-        var extension = Path.GetExtension(filePath);
-
-        var counter = 1;
-        string newPath;
-        do
-        {
-            newPath = Path.Combine(directory, $"{fileName}-{counter}{extension}");
-            counter++;
-        } while (File.Exists(newPath));
-
-        return newPath;
     }
 
     private static string BuildAnalysisReport(PipelineInfo pipeline, AnalysisResult analysis)
