@@ -215,7 +215,7 @@ async Task RunConversionAsync(
 {
     Console.WriteLine();
     Console.WriteLine("╔══════════════════════════════════════════════════════════════╗");
-    Console.WriteLine("║       Pipeline to GitHub Actions Converter (Copilot)         ║");
+    Console.WriteLine("║        Pipeline to GitHub Actions Converter (Copilot)        ║");
     Console.WriteLine("╚══════════════════════════════════════════════════════════════╝");
     Console.WriteLine();
 
@@ -324,58 +324,31 @@ async Task RunConversionAsync(
     Console.WriteLine($"Processing {pipelines.Count} pipeline(s) in parallel...");
     Console.WriteLine();
 
-    // Track progress with in-place updating lines (one line per pipeline)
+    // Sequential progress log — avoids cursor manipulation issues with scrolling/resizing
     var progressLock = new object();
-    var pipelineLines = new Dictionary<string, int>();
-
-    // Pre-allocate a status line for each pipeline
-    foreach (var pipeline in pipelines)
-    {
-        var name = Path.GetFileName(pipeline.FilePath);
-        pipelineLines[name] = Console.CursorTop;
-        Console.WriteLine($"  [{name}] ⏳ Waiting...");
-    }
-    var progressEndLine = Console.CursorTop;
 
     var progress = new SynchronousProgress<ProcessingProgress>(p =>
     {
         // Push update to web dashboard (if running)
         progressService?.Update(p);
 
+        // Only log meaningful phase transitions to keep output concise
+        var (icon, label) = p.Phase switch
+        {
+            ProcessingPhase.Analyzing => ("🔎", "Analyzing"),
+            ProcessingPhase.Converting => ("🔄", "Converting"),
+            ProcessingPhase.Validating => ("🛡️", "Validating"),
+            ProcessingPhase.Complete => ("✅", "Complete"),
+            ProcessingPhase.Failed => ("❌", $"Failed: {p.Message}"),
+            _ => (null, null)
+        };
+
+        if (icon is null) return;
+
         lock (progressLock)
         {
             var name = Path.GetFileName(p.Pipeline.FilePath);
-            var status = p.Phase switch
-            {
-                ProcessingPhase.Starting => "⏳ Starting...",
-                ProcessingPhase.Analyzing => "🔎 Analyzing...",
-                ProcessingPhase.AnalysisComplete => "✅ Analyzed",
-                ProcessingPhase.Converting => "🔄 Converting...",
-                ProcessingPhase.ConversionComplete => "✅ Converted",
-                ProcessingPhase.Validating => "🛡️ Validating...",
-                ProcessingPhase.ValidationComplete => "✅ Validated",
-                ProcessingPhase.Writing => "💾 Writing...",
-                ProcessingPhase.Complete => "✅ Complete",
-                ProcessingPhase.Failed => $"❌ Failed: {p.Message}",
-                _ => "..."
-            };
-
-            if (pipelineLines.TryGetValue(name, out var line))
-            {
-                try
-                {
-                    var width = Console.WindowWidth;
-                    Console.SetCursorPosition(0, line);
-                    var text = $"  [{name}] {status}";
-                    Console.Write(text.PadRight(width - 1));
-                    Console.SetCursorPosition(0, progressEndLine);
-                }
-                catch
-                {
-                    // Fallback if console cursor manipulation isn't supported (e.g. redirected output)
-                    Console.WriteLine($"  [{name}] {status}");
-                }
-            }
+            Console.WriteLine($"  {icon} [{name}] {label}");
         }
     });
 
@@ -391,16 +364,6 @@ async Task RunConversionAsync(
         cancellationToken);
 
     var totalDuration = stopwatch.Elapsed;
-
-    // Move past the progress block before printing results
-    try
-    {
-        Console.SetCursorPosition(0, Math.Min(progressEndLine, Console.BufferHeight - 1));
-    }
-    catch
-    {
-        // Fallback if console cursor manipulation isn't supported (e.g. redirected output or small buffer)
-    }
 
     // Display results
     Console.WriteLine();
