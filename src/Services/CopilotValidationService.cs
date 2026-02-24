@@ -10,18 +10,20 @@ namespace PipelineConverter.Services;
 /// <summary>
 /// Service that uses GitHub Copilot SDK to validate GitHub Actions workflows.
 /// </summary>
-public sealed class CopilotValidationService : CopilotServiceBase
+public sealed class CopilotValidationService
 {
-    public CopilotValidationService(CopilotClient client, string model, TimeSpan timeout, CustomAgentConfig? customAgent = null)
-        : base(client, model, timeout, customAgent)
+    private readonly TimeSpan _timeout;
+
+    public CopilotValidationService(TimeSpan timeout)
     {
+        _timeout = timeout;
     }
 
     /// <summary>
-    /// Validates a converted GitHub Actions workflow in a dedicated session scoped to
-    /// this service's custom agent.
+    /// Validates a converted GitHub Actions workflow using the provided session.
     /// </summary>
     public async Task<ValidationResult> ValidateAsync(
+        CopilotSession session,
         PipelineInfo pipeline,
         string generatedWorkflow,
         CancellationToken cancellationToken = default)
@@ -37,9 +39,8 @@ public sealed class CopilotValidationService : CopilotServiceBase
 
         try
         {
-            await using var session = await CreateSessionAsync(pipeline.Name, cancellationToken);
             var prompt = BuildValidationPrompt(pipeline.OriginalContent, generatedWorkflow);
-            var response = await session.SendAndWaitAsync(new MessageOptions { Prompt = prompt, Mode = "pipeline-validator" }, _timeout);
+            var response = await session.SendAndWaitAsync(new MessageOptions { Prompt = prompt }, _timeout);
             string responseContent = (string)(response?.Data?.Content ?? "");
 
             var (_, copilotIssues) = ParseCopilotValidation(responseContent);

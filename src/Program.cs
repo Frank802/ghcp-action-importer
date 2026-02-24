@@ -483,10 +483,10 @@ async Task RunConversionAsync(
                     Console.WriteLine($"  Report: {Path.GetRelativePath(output.FullName, result.ValidationReportPath)}");
                 }
 
-                if (!string.IsNullOrWhiteSpace(result.Validation.ImprovedWorkflow))
+                if (result.ValidatedWorkflowPath is not null)
                 {
                     Console.ForegroundColor = ConsoleColor.Cyan;
-                    Console.WriteLine("  Improvements: Applied to output workflow");
+                    Console.WriteLine($"  Validated output: {Path.GetRelativePath(output.FullName, result.ValidatedWorkflowPath)}");
                     Console.ResetColor();
                 }
 

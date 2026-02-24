@@ -8,27 +8,28 @@ namespace PipelineConverter.Services;
 /// <summary>
 /// Service that uses GitHub Copilot SDK to convert pipelines to GitHub Actions.
 /// </summary>
-public sealed class CopilotConverterService : CopilotServiceBase
+public sealed class CopilotConverterService
 {
-    public CopilotConverterService(CopilotClient client, string model, TimeSpan timeout, CustomAgentConfig? customAgent = null)
-        : base(client, model, timeout, customAgent)
+    private readonly TimeSpan _timeout;
+
+    public CopilotConverterService(TimeSpan timeout)
     {
+        _timeout = timeout;
     }
 
     /// <summary>
-    /// Converts a pipeline to a GitHub Actions workflow in a dedicated session scoped to
-    /// this service's custom agent.
+    /// Converts a pipeline to a GitHub Actions workflow using the provided session.
     /// </summary>
     public async Task<ConversionResult> ConvertAsync(
+        CopilotSession session,
         PipelineInfo pipeline,
         AnalysisResult? analysis = null,
         CancellationToken cancellationToken = default)
     {
         try
         {
-            await using var session = await CreateSessionAsync(pipeline.Name, cancellationToken);
             var prompt = BuildConversionPrompt(pipeline, analysis);
-            var response = await session.SendAndWaitAsync(new MessageOptions { Prompt = prompt, Mode = "pipeline-converter" }, _timeout);
+            var response = await session.SendAndWaitAsync(new MessageOptions { Prompt = prompt }, _timeout);
             string responseContent = (string)(response?.Data?.Content ?? "");
 
             var workflowYaml = ExtractYamlFromResponse(responseContent);

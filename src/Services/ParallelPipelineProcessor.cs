@@ -4,6 +4,7 @@ using PipelineConverter.Abstractions;
 using PipelineConverter.Configuration;
 using PipelineConverter.Extensions;
 using PipelineConverter.Models;
+using PipelineConverter.Utilities;
 
 namespace PipelineConverter.Services;
 
@@ -17,6 +18,7 @@ public record PipelineProcessingResult
     public AnalysisResult? Analysis { get; init; }
     public ValidationResult? Validation { get; init; }
     public string? WorkflowPath { get; init; }
+    public string? ValidatedWorkflowPath { get; init; }
     public string? AnalysisReportPath { get; init; }
     public string? ValidationReportPath { get; init; }
     public TimeSpan Duration { get; init; }
@@ -46,8 +48,9 @@ public record ProcessingProgress(
     string? Message = null);
 
 /// <summary>
-/// Parallel pipeline processor using multiple Copilot sessions.
-/// Each pipeline gets its own session for conversion and validation.
+/// Parallel pipeline processor using a single Copilot client.
+/// Each pipeline gets exactly one session shared across all phases (analysis, conversion, validation).
+/// Each phase targets the appropriate custom agent via the <c>Mode</c> property on <see cref="MessageOptions"/>.
 /// </summary>
 public sealed class ParallelPipelineProcessor : IAsyncDisposable
 {
@@ -58,6 +61,7 @@ public sealed class ParallelPipelineProcessor : IAsyncDisposable
     private readonly CopilotConverterService _converterService;
     private readonly CopilotValidationService _validationService;
     private readonly CopilotAnalysisService _analysisService;
+    private readonly List<CustomAgentConfig> _allAgents;
     private bool _isStarted;
     private bool _disposed;
 
@@ -71,9 +75,15 @@ public sealed class ParallelPipelineProcessor : IAsyncDisposable
         _client = new CopilotClient();
         _sessionSemaphore = new SemaphoreSlim(settings.Copilot.MaxParallelSessions);
         _timeout = TimeSpan.FromSeconds(settings.Copilot.Timeout);
-        _analysisService = new CopilotAnalysisService(_client, settings.Copilot.Model, _timeout, analyzerAgent);
-        _converterService = new CopilotConverterService(_client, settings.Copilot.Model, _timeout, converterAgent);
-        _validationService = new CopilotValidationService(_client, settings.Copilot.Model, _timeout, validatorAgent);
+        _analysisService = new CopilotAnalysisService(_timeout);
+        _converterService = new CopilotConverterService(_timeout);
+        _validationService = new CopilotValidationService(_timeout);
+
+        // Collect all loaded agents so every session is configured with the full set
+        _allAgents = new[] { analyzerAgent, converterAgent, validatorAgent }
+            .Where(a => a is not null)
+            .Cast<CustomAgentConfig>()
+            .ToList();
     }
 
     public static async Task<ParallelPipelineProcessor> CreateAsync(AppSettings settings)
@@ -131,7 +141,25 @@ public sealed class ParallelPipelineProcessor : IAsyncDisposable
     }
 
     /// <summary>
+    /// Creates a single Copilot session for a pipeline, pre-loaded with all custom agents.
+    /// </summary>
+    private Task<CopilotSession> CreatePipelineSessionAsync(
+        PipelineInfo pipeline,
+        CancellationToken cancellationToken)
+    {
+        var config = new SessionConfig
+        {
+            SessionId = $"pipeline-{SessionIdSanitizer.SanitizeSessionId(pipeline.Name)}-{Guid.NewGuid():N}",
+            Model = _settings.Copilot.Model,
+            CustomAgents = _allAgents.Count > 0 ? _allAgents : null
+        };
+        return _client.CreateSessionAsync(config, cancellationToken);
+    }
+
+    /// <summary>
     /// Processes a single pipeline in its own session.
+    /// All phases (analysis, conversion, validation) share the same session,
+    /// preserving context across the entire pipeline lifecycle.
     /// </summary>
     private async Task<PipelineProcessingResult> ProcessPipelineAsync(
         PipelineInfo pipeline,
@@ -150,6 +178,9 @@ public sealed class ParallelPipelineProcessor : IAsyncDisposable
         {
             progress?.Report(new ProcessingProgress(pipeline, ProcessingPhase.Starting));
 
+            // Create a single session for all phases of this pipeline
+            await using var session = await CreatePipelineSessionAsync(pipeline, cancellationToken);
+
             // Phase 0: Analysis (optional, runs before conversion)
             AnalysisResult? analysisResult = null;
             string? analysisReportPath = null;
@@ -158,7 +189,7 @@ public sealed class ParallelPipelineProcessor : IAsyncDisposable
             {
                 progress?.Report(new ProcessingProgress(pipeline, ProcessingPhase.Analyzing));
 
-                analysisResult = await _analysisService.AnalyzeAsync(pipeline, cancellationToken);
+                analysisResult = await _analysisService.AnalyzeAsync(session, pipeline, cancellationToken);
 
                 progress?.Report(new ProcessingProgress(pipeline, ProcessingPhase.AnalysisComplete));
 
@@ -188,7 +219,7 @@ public sealed class ParallelPipelineProcessor : IAsyncDisposable
             // Phase 1: Conversion
             progress?.Report(new ProcessingProgress(pipeline, ProcessingPhase.Converting));
             
-            var conversionResult = await _converterService.ConvertAsync(pipeline, analysisResult, cancellationToken);
+            var conversionResult = await _converterService.ConvertAsync(session, pipeline, analysisResult, cancellationToken);
             
             if (!conversionResult.IsSuccess)
             {
@@ -211,24 +242,26 @@ public sealed class ParallelPipelineProcessor : IAsyncDisposable
 
             ValidationResult? validationResult = null;
             string? validationReportPath = null;
+            string? validatedWorkflowPath = null;
 
-            // Phase 2: Validation (in same session, maintains context)
+            // Phase 2: Validation (same session — full context from analysis + conversion)
             if (!skipValidation)
             {
                 progress?.Report(new ProcessingProgress(pipeline, ProcessingPhase.Validating));
                 
                 validationResult = await _validationService.ValidateAsync(
+                    session,
                     pipeline,
                     conversionResult.WorkflowYaml!,
                     cancellationToken);
 
                 progress?.Report(new ProcessingProgress(pipeline, ProcessingPhase.ValidationComplete));
 
-                // Overwrite the converted workflow with the improved version if available
+                // Write the validated/improved workflow to a separate "-validated" file
                 if (!string.IsNullOrWhiteSpace(validationResult.ImprovedWorkflow))
                 {
-                    await writer.OverwriteWithImprovedAsync(
-                        workflowPath, validationResult.ImprovedWorkflow, cancellationToken);
+                    validatedWorkflowPath = await writer.WriteValidatedAsync(
+                        workflowPath, validationResult, cancellationToken);
                 }
 
                 // Write validation report
@@ -248,6 +281,7 @@ public sealed class ParallelPipelineProcessor : IAsyncDisposable
                 Conversion = conversionResult,
                 Validation = validationResult,
                 WorkflowPath = workflowPath,
+                ValidatedWorkflowPath = validatedWorkflowPath,
                 AnalysisReportPath = analysisReportPath,
                 ValidationReportPath = validationReportPath,
                 Duration = stopwatch.Elapsed
@@ -309,9 +343,6 @@ public sealed class ParallelPipelineProcessor : IAsyncDisposable
         
         _disposed = true;
         GC.SuppressFinalize(this);
-        await _converterService.DisposeAsync();
-        await _validationService.DisposeAsync();
-        await _analysisService.DisposeAsync();
         if (_isStarted)
         {
             await _client.DisposeAsync();

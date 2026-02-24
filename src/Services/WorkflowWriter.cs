@@ -98,14 +98,20 @@ public sealed class WorkflowWriter
     }
 
     /// <summary>
-    /// Overwrites the converted workflow file with the improved version from validation.
+    /// Writes the validated/improved workflow to a separate "-validated" file.
     /// </summary>
-    public async Task OverwriteWithImprovedAsync(
+    public async Task<string> WriteValidatedAsync(
         string workflowPath,
-        string improvedContent,
+        ValidationResult validation,
         CancellationToken cancellationToken = default)
     {
-        await File.WriteAllTextAsync(workflowPath, improvedContent, cancellationToken);
+        var directory = Path.GetDirectoryName(workflowPath)!;
+        var fileName = Path.GetFileNameWithoutExtension(workflowPath);
+        var extension = Path.GetExtension(workflowPath);
+        var validatedPath = Path.Combine(directory, $"{fileName}-validated{extension}");
+
+        await File.WriteAllTextAsync(validatedPath, validation.ImprovedWorkflow, cancellationToken);
+        return validatedPath;
     }
 
     private void EnsureDirectoryExists()

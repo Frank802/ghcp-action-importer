@@ -8,25 +8,27 @@ namespace PipelineConverter.Services;
 /// Service that uses GitHub Copilot SDK to analyze pipelines before conversion.
 /// Produces a structured report with complexity scoring, risks, and structure breakdown.
 /// </summary>
-public sealed class CopilotAnalysisService : CopilotServiceBase
+public sealed class CopilotAnalysisService
 {
-    public CopilotAnalysisService(CopilotClient client, string model, TimeSpan timeout, CustomAgentConfig? customAgent = null)
-        : base(client, model, timeout, customAgent)
+    private readonly TimeSpan _timeout;
+
+    public CopilotAnalysisService(TimeSpan timeout)
     {
+        _timeout = timeout;
     }
 
     /// <summary>
-    /// Analyzes a pipeline in a dedicated session scoped to this service's custom agent.
+    /// Analyzes a pipeline using the provided session.
     /// </summary>
     public async Task<AnalysisResult> AnalyzeAsync(
+        CopilotSession session,
         PipelineInfo pipeline,
         CancellationToken cancellationToken = default)
     {
         try
         {
-            await using var session = await CreateSessionAsync(pipeline.Name, cancellationToken);
             var prompt = BuildAnalysisPrompt(pipeline);
-            var response = await session.SendAndWaitAsync(new MessageOptions { Prompt = prompt, Mode = "pipeline-analyzer" }, _timeout);
+            var response = await session.SendAndWaitAsync(new MessageOptions { Prompt = prompt }, _timeout);
             string responseContent = (string)(response?.Data?.Content ?? "");
 
             if (string.IsNullOrWhiteSpace(responseContent))
