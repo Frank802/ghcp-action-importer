@@ -2,7 +2,6 @@ using System.Diagnostics;
 using GitHub.Copilot.SDK;
 using PipelineConverter.Abstractions;
 using PipelineConverter.Configuration;
-using PipelineConverter.Extensions;
 using PipelineConverter.Models;
 using PipelineConverter.Utilities;
 
@@ -50,7 +49,7 @@ public record ProcessingProgress(
 /// <summary>
 /// Parallel pipeline processor using a single Copilot client.
 /// Each pipeline gets exactly one session shared across all phases (analysis, conversion, validation).
-/// Each phase targets the appropriate custom agent via the <c>Mode</c> property on <see cref="MessageOptions"/>.
+/// Phase-specific prompts are injected into each message.
 /// </summary>
 public sealed class ParallelPipelineProcessor : IAsyncDisposable
 {
@@ -61,37 +60,30 @@ public sealed class ParallelPipelineProcessor : IAsyncDisposable
     private readonly CopilotConverterService _converterService;
     private readonly CopilotValidationService _validationService;
     private readonly CopilotAnalysisService _analysisService;
-    private readonly List<CustomAgentConfig> _allAgents;
     private bool _isStarted;
     private bool _disposed;
 
     private ParallelPipelineProcessor(
         AppSettings settings,
-        CustomAgentConfig? converterAgent,
-        CustomAgentConfig? validatorAgent,
-        CustomAgentConfig? analyzerAgent)
+        string analyzerPrompt,
+        string converterPrompt,
+        string validatorPrompt)
     {
         _settings = settings;
         _client = new CopilotClient();
         _sessionSemaphore = new SemaphoreSlim(settings.Copilot.MaxParallelSessions);
         _timeout = TimeSpan.FromSeconds(settings.Copilot.Timeout);
-        _analysisService = new CopilotAnalysisService(_timeout);
-        _converterService = new CopilotConverterService(_timeout);
-        _validationService = new CopilotValidationService(_timeout);
-
-        // Collect all loaded agents so every session is configured with the full set
-        _allAgents = new[] { analyzerAgent, converterAgent, validatorAgent }
-            .Where(a => a is not null)
-            .Cast<CustomAgentConfig>()
-            .ToList();
+        _analysisService = new CopilotAnalysisService(_timeout, analyzerPrompt);
+        _converterService = new CopilotConverterService(_timeout, converterPrompt);
+        _validationService = new CopilotValidationService(_timeout, validatorPrompt);
     }
 
     public static async Task<ParallelPipelineProcessor> CreateAsync(AppSettings settings)
     {
-        var converterAgent = await LoadAgentConfigAsync(settings.Copilot.ConverterAgentFile);
-        var validatorAgent = await LoadAgentConfigAsync(settings.Copilot.ValidatorAgentFile);
-        var analyzerAgent = await LoadAgentConfigAsync(settings.Copilot.AnalyzerAgentFile);
-        return new ParallelPipelineProcessor(settings, converterAgent, validatorAgent, analyzerAgent);
+        var analyzerPrompt = await PromptLoader.LoadAsync(settings.Copilot.AnalyzerPromptFile);
+        var converterPrompt = await PromptLoader.LoadAsync(settings.Copilot.ConverterPromptFile);
+        var validatorPrompt = await PromptLoader.LoadAsync(settings.Copilot.ValidatorPromptFile);
+        return new ParallelPipelineProcessor(settings, analyzerPrompt, converterPrompt, validatorPrompt);
     }
 
     /// <summary>
@@ -141,7 +133,7 @@ public sealed class ParallelPipelineProcessor : IAsyncDisposable
     }
 
     /// <summary>
-    /// Creates a single Copilot session for a pipeline, pre-loaded with all custom agents.
+    /// Creates a single Copilot session for a pipeline.
     /// </summary>
     private Task<CopilotSession> CreatePipelineSessionAsync(
         PipelineInfo pipeline,
@@ -150,8 +142,7 @@ public sealed class ParallelPipelineProcessor : IAsyncDisposable
         var config = new SessionConfig
         {
             SessionId = $"pipeline-{SessionIdSanitizer.SanitizeSessionId(pipeline.Name)}-{Guid.NewGuid():N}",
-            Model = _settings.Copilot.Model,
-            CustomAgents = _allAgents.Count > 0 ? _allAgents : null
+            Model = _settings.Copilot.Model
         };
         return _client.CreateSessionAsync(config, cancellationToken);
     }
@@ -306,35 +297,6 @@ public sealed class ParallelPipelineProcessor : IAsyncDisposable
                 _sessionSemaphore.Release();
             }
         }
-    }
-
-    /// <summary>
-    /// Loads a CustomAgentConfig from a markdown file, returning null if the file doesn't exist.
-    /// Validates that the resolved path is under the application base directory.
-    /// </summary>
-    private static async Task<CustomAgentConfig?> LoadAgentConfigAsync(string? agentFilePath)
-    {
-        if (string.IsNullOrWhiteSpace(agentFilePath))
-            return null;
-
-        // Resolve relative to application base directory
-        var fullPath = Path.IsPathRooted(agentFilePath)
-            ? agentFilePath
-            : Path.Combine(AppContext.BaseDirectory, agentFilePath);
-
-        // Normalize paths and validate that fullPath is under AppContext.BaseDirectory
-        var normalizedBasePath = Path.GetFullPath(AppContext.BaseDirectory);
-        var normalizedFullPath = Path.GetFullPath(fullPath);
-        
-        if (!normalizedFullPath.StartsWith(normalizedBasePath, StringComparison.OrdinalIgnoreCase))
-        {
-            throw new UnauthorizedAccessException($"Agent file path '{agentFilePath}' resolves outside the application directory.");
-        }
-
-        if (!File.Exists(fullPath))
-            return null;
-
-        return await CustomAgentConfigExtensions.FromMarkdownFileAsync(fullPath);
     }
 
     public async ValueTask DisposeAsync()

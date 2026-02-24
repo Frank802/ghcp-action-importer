@@ -11,10 +11,12 @@ namespace PipelineConverter.Services;
 public sealed class CopilotAnalysisService
 {
     private readonly TimeSpan _timeout;
+    private readonly string _systemPrompt;
 
-    public CopilotAnalysisService(TimeSpan timeout)
+    public CopilotAnalysisService(TimeSpan timeout, string systemPrompt)
     {
         _timeout = timeout;
+        _systemPrompt = systemPrompt;
     }
 
     /// <summary>
@@ -44,7 +46,7 @@ public sealed class CopilotAnalysisService
         }
     }
 
-    private static string BuildAnalysisPrompt(PipelineInfo pipeline)
+    private string BuildAnalysisPrompt(PipelineInfo pipeline)
     {
         var sourceType = pipeline.SourceType switch
         {
@@ -55,6 +57,10 @@ public sealed class CopilotAnalysisService
         };
 
         return $"""
+            <instructions>
+            {_systemPrompt}
+            </instructions>
+
             Analyze the following {sourceType} pipeline and produce a pre-conversion report.
             Assess its complexity for conversion to GitHub Actions, identify risks, unsupported features,
             and break down its structure.

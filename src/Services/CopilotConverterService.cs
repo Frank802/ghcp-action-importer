@@ -11,10 +11,12 @@ namespace PipelineConverter.Services;
 public sealed class CopilotConverterService
 {
     private readonly TimeSpan _timeout;
+    private readonly string _systemPrompt;
 
-    public CopilotConverterService(TimeSpan timeout)
+    public CopilotConverterService(TimeSpan timeout, string systemPrompt)
     {
         _timeout = timeout;
+        _systemPrompt = systemPrompt;
     }
 
     /// <summary>
@@ -50,7 +52,7 @@ public sealed class CopilotConverterService
         }
     }
 
-    private static string BuildConversionPrompt(PipelineInfo pipeline, AnalysisResult? analysis = null)
+    private string BuildConversionPrompt(PipelineInfo pipeline, AnalysisResult? analysis = null)
     {
         var sourceType = pipeline.SourceType switch
         {
@@ -61,7 +63,11 @@ public sealed class CopilotConverterService
         };
 
         var prompt = $"""
-            You are an expert in CI/CD pipeline migration. Convert the following {sourceType} pipeline to a GitHub Actions workflow.
+            <instructions>
+            {_systemPrompt}
+            </instructions>
+
+            Convert the following {sourceType} pipeline to a GitHub Actions workflow.
 
             Requirements:
             1. Produce a valid GitHub Actions workflow YAML file

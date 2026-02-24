@@ -13,10 +13,12 @@ namespace PipelineConverter.Services;
 public sealed class CopilotValidationService
 {
     private readonly TimeSpan _timeout;
+    private readonly string _systemPrompt;
 
-    public CopilotValidationService(TimeSpan timeout)
+    public CopilotValidationService(TimeSpan timeout, string systemPrompt)
     {
         _timeout = timeout;
+        _systemPrompt = systemPrompt;
     }
 
     /// <summary>
@@ -198,10 +200,14 @@ public sealed class CopilotValidationService
         return issues;
     }
 
-    private static string BuildValidationPrompt(string originalPipeline, string generatedWorkflow)
+    private string BuildValidationPrompt(string originalPipeline, string generatedWorkflow)
     {
         return $"""
-            You are a GitHub Actions expert reviewing a converted workflow. Analyze the generated workflow for:
+            <instructions>
+            {_systemPrompt}
+            </instructions>
+
+            You are reviewing a converted workflow. Analyze the generated workflow for:
 
             1. **Correctness**: Does it accurately represent the original pipeline's logic?
             2. **Best Practices**: Does it follow GitHub Actions best practices?
