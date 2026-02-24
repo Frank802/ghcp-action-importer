@@ -12,12 +12,9 @@ namespace PipelineConverter.Services;
 /// </summary>
 public sealed class CopilotValidationService : CopilotServiceBase
 {
-    private readonly List<AIFunction> _tools;
-
     public CopilotValidationService(CopilotClient client, string model, TimeSpan timeout, CustomAgentConfig? customAgent = null)
         : base(client, model, timeout, customAgent)
     {
-        _tools = CreateValidationTools();
     }
 
     /// <summary>
@@ -40,11 +37,9 @@ public sealed class CopilotValidationService : CopilotServiceBase
 
         try
         {
-            await using var session = await CreateSessionAsync(pipeline.Name, cancellationToken,
-                config => config.Tools = _tools);
-
+            await using var session = await CreateSessionAsync(pipeline.Name, cancellationToken);
             var prompt = BuildValidationPrompt(pipeline.OriginalContent, generatedWorkflow);
-            var response = await session.SendAndWaitAsync(new MessageOptions { Prompt = prompt }, _timeout);
+            var response = await session.SendAndWaitAsync(new MessageOptions { Prompt = prompt, Mode = "pipeline-validator" }, _timeout);
             string responseContent = (string)(response?.Data?.Content ?? "");
 
             var (_, copilotIssues) = ParseCopilotValidation(responseContent);
@@ -73,88 +68,6 @@ public sealed class CopilotValidationService : CopilotServiceBase
                 Issues = issues
             };
         }
-    }
-
-    private List<AIFunction> CreateValidationTools()
-    {
-        return
-        [
-            AIFunctionFactory.Create(ValidateSyntaxTool, "validate_yaml_syntax",
-                "Validates the YAML syntax of a GitHub Actions workflow"),
-            AIFunctionFactory.Create(CheckSecurityIssuesTool, "check_security",
-                "Checks for common security issues in a GitHub Actions workflow"),
-            AIFunctionFactory.Create(ValidateActionVersionsTool, "validate_action_versions",
-                "Validates that actions use pinned versions")
-        ];
-    }
-
-    [Description("Validates YAML syntax and returns any parsing errors")]
-    private static string ValidateSyntaxTool([Description("The YAML content to validate")] string yaml)
-    {
-        var result = ValidateYamlSyntax(yaml);
-        if (result.IsValid)
-        {
-            return "YAML syntax is valid.";
-        }
-        return string.Join("\n", result.Issues.Select(i => $"Line {i.LineNumber}: {i.Message}"));
-    }
-
-    [Description("Checks for security issues like command injection, secret exposure")]
-    private static string CheckSecurityIssuesTool([Description("The workflow YAML to check")] string yaml)
-    {
-        var issues = new List<string>();
-
-        // Check for potentially dangerous patterns
-        if (yaml.Contains("${{") && yaml.Contains("github.event."))
-        {
-            if (yaml.Contains("github.event.issue.title") || 
-                yaml.Contains("github.event.issue.body") ||
-                yaml.Contains("github.event.pull_request.title") ||
-                yaml.Contains("github.event.pull_request.body"))
-            {
-                issues.Add("Potential command injection: User-controlled input used in expression. Consider sanitizing.");
-            }
-        }
-
-        if (yaml.Contains("GITHUB_TOKEN") && yaml.Contains("write"))
-        {
-            issues.Add("Workflow uses GITHUB_TOKEN with write permissions. Ensure this is necessary.");
-        }
-
-        if (yaml.Contains("pull_request_target"))
-        {
-            issues.Add("Uses pull_request_target trigger which can be security-sensitive. Ensure proper handling.");
-        }
-
-        return issues.Count > 0 ? string.Join("\n", issues) : "No obvious security issues found.";
-    }
-
-    [Description("Checks if GitHub Actions use pinned versions")]
-    private static string ValidateActionVersionsTool([Description("The workflow YAML to check")] string yaml)
-    {
-        var issues = new List<string>();
-        var lines = yaml.Split('\n');
-
-        for (int i = 0; i < lines.Length; i++)
-        {
-            var line = lines[i].Trim();
-            if (line.StartsWith("uses:"))
-            {
-                var action = line["uses:".Length..].Trim();
-                
-                // Check if using @main, @master, or no version
-                if (action.EndsWith("@main") || action.EndsWith("@master"))
-                {
-                    issues.Add($"Line {i + 1}: Action '{action}' uses unstable branch. Consider pinning to a version.");
-                }
-                else if (!action.Contains('@'))
-                {
-                    issues.Add($"Line {i + 1}: Action '{action}' has no version specified.");
-                }
-            }
-        }
-
-        return issues.Count > 0 ? string.Join("\n", issues) : "All actions use pinned versions.";
     }
 
     private static ValidationResult ValidateYamlSyntax(string yaml)

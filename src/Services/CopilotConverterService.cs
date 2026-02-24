@@ -28,7 +28,7 @@ public sealed class CopilotConverterService : CopilotServiceBase
         {
             await using var session = await CreateSessionAsync(pipeline.Name, cancellationToken);
             var prompt = BuildConversionPrompt(pipeline, analysis);
-            var response = await session.SendAndWaitAsync(new MessageOptions { Prompt = prompt }, _timeout);
+            var response = await session.SendAndWaitAsync(new MessageOptions { Prompt = prompt, Mode = "pipeline-converter" }, _timeout);
             string responseContent = (string)(response?.Data?.Content ?? "");
 
             var workflowYaml = ExtractYamlFromResponse(responseContent);

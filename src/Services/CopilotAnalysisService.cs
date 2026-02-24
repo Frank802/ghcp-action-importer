@@ -26,7 +26,7 @@ public sealed class CopilotAnalysisService : CopilotServiceBase
         {
             await using var session = await CreateSessionAsync(pipeline.Name, cancellationToken);
             var prompt = BuildAnalysisPrompt(pipeline);
-            var response = await session.SendAndWaitAsync(new MessageOptions { Prompt = prompt }, _timeout);
+            var response = await session.SendAndWaitAsync(new MessageOptions { Prompt = prompt, Mode = "pipeline-analyzer" }, _timeout);
             string responseContent = (string)(response?.Data?.Content ?? "");
 
             if (string.IsNullOrWhiteSpace(responseContent))
