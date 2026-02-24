@@ -10,8 +10,8 @@ A .NET 10 application that converts CI/CD pipelines from GitLab, Azure DevOps, a
 - **Multi-source support**: Convert pipelines from GitLab CI, Azure DevOps, and Jenkins
 - **AI-powered conversion**: Uses GitHub Copilot to intelligently map pipeline constructs to GitHub Actions
 - **Pre-conversion analysis**: Copilot-powered analysis evaluates pipeline complexity, identifies risks, flags unsupported features, and can block conversion on critical issues
-- **Custom agents**: Define custom Copilot agents via markdown files with YAML front matter
-- **Validation agent**: Custom Copilot agent validates generated workflows for:
+- **Custom prompts**: Customizable prompt files drive each phase (analysis, conversion, validation)
+- **Validation**: Validates generated workflows for:
   - YAML syntax correctness
   - GitHub Actions structure requirements
   - Security best practices
@@ -42,9 +42,9 @@ flowchart TB
         Client["<b>CopilotClient</b> — single connection, N parallel sessions"]
         Client --> S1 & S2 & SN
 
-        S1["<b>Session 1</b><br/>🔬 Analyzer Agent<br/>→ 🔄 Converter Agent<br/>→ ✅ Validator Agent"]
-        S2["<b>Session 2</b><br/>🔬 Analyzer Agent<br/>→ 🔄 Converter Agent<br/>→ ✅ Validator Agent"]
-        SN["<b>Session N</b><br/>🔬 Analyzer Agent<br/>→ 🔄 Converter Agent<br/>→ ✅ Validator Agent"]
+        S1["<b>Session 1</b><br/>🔬 Analyze<br/>→ 🔄 Convert<br/>→ ✅ Validate"]
+        S2["<b>Session 2</b><br/>🔬 Analyze<br/>→ 🔄 Convert<br/>→ ✅ Validate"]
+        SN["<b>Session N</b><br/>🔬 Analyze<br/>→ 🔄 Convert<br/>→ ✅ Validate"]
     end
 
     Scan --> Process
@@ -66,11 +66,11 @@ flowchart TB
 
 2. **Connect** — A single `CopilotClient` is created and connects to GitHub Copilot via the CLI. A `SemaphoreSlim` throttles work to `MaxParallelSessions` concurrent sessions.
 
-3. **Analyze** — For each pipeline, a dedicated Copilot session is created. The `CopilotAnalysisService` sends the pipeline content to a custom **pipeline-analyzer** agent that evaluates complexity (Low/Medium/High/Critical), identifies risks and unsupported features, and estimates conversion effort. If `BlockOnCritical` is enabled and the analyzer flags a critical block, conversion is skipped for that pipeline.
+3. **Analyze** — For each pipeline, a dedicated Copilot session is created. The `CopilotAnalysisService` loads the analyzer prompt via `PromptLoader` and sends the pipeline content to Copilot. It evaluates complexity (Low/Medium/High/Critical), identifies risks and unsupported features, and estimates conversion effort. If `BlockOnCritical` is enabled and the analyzer flags a critical block, conversion is skipped for that pipeline.
 
-4. **Convert** — In the *same* session (preserving analysis context), the `CopilotConverterService` sends the pipeline content along with a conversion prompt to a custom **pipeline-converter** agent. Analysis findings (risks, unsupported features, complexity) are explicitly injected into the prompt so the converter can add TODO comments and handle edge cases. The model returns a GitHub Actions workflow in a YAML code block, which is extracted and saved.
+4. **Convert** — In the *same* session (preserving analysis context), the `CopilotConverterService` loads the converter prompt and sends the pipeline content to Copilot. Analysis findings (risks, unsupported features, complexity) are explicitly injected into the prompt so the converter can add TODO comments and handle edge cases. The model returns a GitHub Actions workflow in a YAML code block, which is extracted and saved.
 
-5. **Validate** — Still in the same session, the `CopilotValidationService` sends the original pipeline and converted workflow to a custom **workflow-validator** agent. The validator checks syntax, security, and action pinning, then returns issues, suggestions, and an improved workflow.
+5. **Validate** — Still in the same session, the `CopilotValidationService` loads the validator prompt and sends the original pipeline and converted workflow to Copilot. The validator checks syntax, security, and action pinning, then returns issues, suggestions, and an improved workflow.
 
 6. **Write** — `WorkflowWriter` saves the workflow file (overwriting with the improved version if one was produced), generates an `.analysis.md` report, and generates a `.validation.md` report.
 
@@ -165,7 +165,7 @@ The dashboard stays running after processing completes — press Ctrl+C to stop.
 
 ## Output Structure
 
-Converted workflows are saved to the output directory. When `CreateWorkflowsSubdirectory` is enabled (default), the structure is:
+Converted workflows are saved to the output directory. When `CreateWorkflowsSubdirectory` is enabled, the structure is:
 
 ```
 <output-folder>/
@@ -176,27 +176,18 @@ Converted workflows are saved to the output directory. When `CreateWorkflowsSubd
         └── gitlab-ci.validation.md # Validation report
 ```
 
-When disabled, files are written directly to the output folder. If the validator produces an improved workflow, it overwrites the converted file automatically.
+When disabled (default), files are written directly to the output folder. If the validator produces an improved workflow, it overwrites the converted file automatically.
 
 ## Project Structure
 
 ```
 ghcp-action-importer/
-├── ghcp-action-importer.sln            # Solution file
-├── samples/                            # Sample pipeline files for testing
-│   ├── .gitlab-ci.yml
-│   ├── azure-pipelines.yml
-│   └── Jenkinsfile
 ├── src/
 │   ├── PipelineConverter.csproj        # Project file (Microsoft.NET.Sdk.Web)
 │   ├── Program.cs                      # CLI entry point & Blazor host
 │   ├── appsettings.json                # Configuration file
 │   ├── Abstractions/
 │   │   └── IPipelineSource.cs          # Interface + PipelineType enum
-│   ├── Agents/
-│   │   ├── pipeline-analyzer.md        # Analyzer agent definition
-│   │   ├── pipeline-converter.md       # Converter agent definition
-│   │   └── workflow-validator.md       # Validator agent definition
 │   ├── Components/                     # Blazor Server UI
 │   │   ├── App.razor                   # Root component / HTML host
 │   │   ├── Routes.razor
@@ -214,8 +205,11 @@ ghcp-action-importer/
 │   │   ├── ConversionResult.cs         # Conversion result model
 │   │   ├── PipelineInfo.cs             # Pipeline metadata
 │   │   └── ValidationResult.cs         # Validation result model
+│   ├── Prompts/                        # Copilot prompt files (plain markdown)
+│   │   ├── analyzer.md                 # Pre-conversion analysis prompt
+│   │   ├── converter.md                # Pipeline-to-Actions conversion prompt
+│   │   └── validator.md                # Workflow validation prompt
 │   ├── Services/
-│   │   ├── CopilotServiceBase.cs       # Base class for Copilot services
 │   │   ├── CopilotAnalysisService.cs   # AI pre-conversion analysis
 │   │   ├── CopilotConverterService.cs  # AI conversion (standalone or session-based)
 │   │   ├── CopilotValidationService.cs # AI validation (standalone or session-based)
@@ -229,6 +223,7 @@ ghcp-action-importer/
 │   │   └── JenkinsPipelineSource.cs
 │   ├── Utilities/
 │   │   ├── FileNameGenerator.cs        # Workflow filename generation
+│   │   ├── PromptLoader.cs             # Loads prompt files as plain text
 │   │   └── SessionIdSanitizer.cs       # Session ID sanitization
 │   └── wwwroot/
 │       └── css/
@@ -243,17 +238,17 @@ The application uses `appsettings.json` for configuration. Settings can be custo
 ```json
 {
   "Paths": {
-    "InputDirectory": "",
-    "OutputDirectory": "",
+    "InputDirectory": "../samples",
+    "OutputDirectory": "../output",
     "SourceFilter": ""
   },
   "Copilot": {
-    "Model": "gpt-4.1",
-    "Timeout": 120,
+    "Model": "claude-sonnet-4.5",
+    "Timeout": 600,
     "MaxParallelSessions": 3,
-    "ConverterAgentFile": "Agents/pipeline-converter.md",
-    "ValidatorAgentFile": "Agents/workflow-validator.md",
-    "AnalyzerAgentFile": "Agents/pipeline-analyzer.md"
+    "AnalyzerPromptFile": "Prompts/analyzer.md",
+    "ConverterPromptFile": "Prompts/converter.md",
+    "ValidatorPromptFile": "Prompts/validator.md"
   },
   "Analysis": {
     "Enabled": true,
@@ -261,7 +256,7 @@ The application uses `appsettings.json` for configuration. Settings can be custo
     "GenerateReports": true
   },
   "Conversion": {
-    "CreateWorkflowsSubdirectory": true,
+    "CreateWorkflowsSubdirectory": false,
     "GenerateValidationReports": true
   },
   "Validation": {
@@ -281,12 +276,12 @@ The application uses `appsettings.json` for configuration. Settings can be custo
 | **Paths** | `InputDirectory` | Default input directory (overridden by `-i`) |
 | | `OutputDirectory` | Default output directory (overridden by `-o`) |
 | | `SourceFilter` | Filter: `GitLab`, `AzureDevOps`, `Jenkins` (optional) |
-| **Copilot** | `Model` | Model to use (`gpt-4.1`, `claude-sonnet-4.5`, etc.) |
+| **Copilot** | `Model` | Model to use (`claude-sonnet-4.5`, `gpt-4.1`, etc.) |
 | | `Timeout` | Timeout in seconds per Copilot operation |
 | | `MaxParallelSessions` | Number of concurrent Copilot sessions |
-| | `ConverterAgentFile` | Path to converter agent markdown file |
-| | `ValidatorAgentFile` | Path to validator agent markdown file |
-| | `AnalyzerAgentFile` | Path to analyzer agent markdown file |
+| | `AnalyzerPromptFile` | Path to analyzer prompt markdown file |
+| | `ConverterPromptFile` | Path to converter prompt markdown file |
+| | `ValidatorPromptFile` | Path to validator prompt markdown file |
 | **Analysis** | `Enabled` | Enable pre-conversion analysis (default: `true`) |
 | | `BlockOnCritical` | Block conversion when critical issues found (default: `true`) |
 | | `GenerateReports` | Generate `.analysis.md` report files (default: `true`) |
@@ -312,53 +307,19 @@ dotnet run
 
 Create `appsettings.local.json` for local overrides (ignored by git).
 
-## Custom Agents
+## Prompt Files
 
-Custom Copilot agents are defined using markdown files with YAML front matter. This allows you to customize the conversion and validation behavior without modifying code.
+Each phase of the pipeline conversion is driven by a plain markdown prompt file loaded via `PromptLoader`. These files contain the system instructions sent to Copilot and can be customized without modifying code.
 
-### Agent File Format
+Prompt files are configured in `appsettings.json` under the `Copilot` section:
 
-```markdown
----
-name: my-custom-agent
-displayName: My Custom Agent
-description: A custom agent for specific conversions
-infer: true
----
+| Key | Default | Purpose |
+|-----|---------|--------|
+| `AnalyzerPromptFile` | `Prompts/analyzer.md` | Pre-conversion analysis instructions |
+| `ConverterPromptFile` | `Prompts/converter.md` | Pipeline-to-Actions conversion instructions |
+| `ValidatorPromptFile` | `Prompts/validator.md` | Workflow validation and improvement instructions |
 
-You are an expert at converting pipelines...
-
-## Your Role
-- Analyze source pipelines
-- Generate GitHub Actions workflows
-- Follow best practices
-```
-
-### YAML Front Matter Properties
-
-| Property | Type | Description |
-|----------|------|-------------|
-| `name` | string | Unique identifier for the agent |
-| `displayName` | string | Human-readable name |
-| `description` | string | Brief description of the agent's purpose |
-| `infer` | bool | Enable AI inference capabilities |
-
-### Loading Custom Agents
-
-Agents are loaded automatically from the paths specified in `appsettings.json` (`ConverterAgentFile` and `ValidatorAgentFile`). You can also load them programmatically:
-
-```csharp
-using PipelineConverter.Extensions;
-using GitHub.Copilot.SDK;
-
-// Load agent from markdown file
-var agent = CustomAgentConfigExtensions.FromMarkdownFile("Agents/my-agent.md");
-
-// Use with CopilotConverterService
-var service = CopilotConverterService.WithAgentFromFile("gpt-4.1", 120, "Agents/my-agent.md");
-```
-
-See the included agent files in `src/Agents/` for examples.
+See the included prompt files in `src/Prompts/` for examples.
 
 ## Extending with New Sources
 
