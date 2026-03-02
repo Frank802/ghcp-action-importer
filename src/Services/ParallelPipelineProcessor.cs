@@ -142,7 +142,8 @@ public sealed class ParallelPipelineProcessor : IAsyncDisposable
         var config = new SessionConfig
         {
             SessionId = $"pipeline-{SessionIdSanitizer.SanitizeSessionId(pipeline.Name)}-{Guid.NewGuid():N}",
-            Model = _settings.Copilot.Model
+            Model = _settings.Copilot.Model,
+            OnPermissionRequest = PermissionHandler.ApproveAll
         };
         return _client.CreateSessionAsync(config, cancellationToken);
     }
