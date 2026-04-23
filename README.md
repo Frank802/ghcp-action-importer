@@ -243,7 +243,7 @@ The application uses `appsettings.json` for configuration. Settings can be custo
     "SourceFilter": ""
   },
   "Copilot": {
-    "Model": "claude-sonnet-4.5",
+    "Model": "claude-opus-4.6",
     "Timeout": 600,
     "MaxParallelSessions": 3,
     "AnalyzerPromptFile": "Prompts/analyzer.md",
