@@ -11,12 +11,12 @@ namespace PipelineConverter.Services;
 public sealed class CopilotAnalysisService
 {
     private readonly TimeSpan _timeout;
-    private readonly string _systemPrompt;
+    private readonly string _agentName;
 
-    public CopilotAnalysisService(TimeSpan timeout, string systemPrompt)
+    public CopilotAnalysisService(TimeSpan timeout, string agentName)
     {
         _timeout = timeout;
-        _systemPrompt = systemPrompt;
+        _agentName = agentName;
     }
 
     /// <summary>
@@ -29,6 +29,7 @@ public sealed class CopilotAnalysisService
     {
         try
         {
+            await session.Rpc.Agent.SelectAsync(_agentName);
             var prompt = BuildAnalysisPrompt(pipeline);
             var response = await session.SendAndWaitAsync(new MessageOptions { Prompt = prompt }, _timeout);
             string responseContent = (string)(response?.Data?.Content ?? "");
@@ -57,10 +58,6 @@ public sealed class CopilotAnalysisService
         };
 
         return $"""
-            <instructions>
-            {_systemPrompt}
-            </instructions>
-
             Analyze the following {sourceType} pipeline and produce a pre-conversion report.
             Assess its complexity for conversion to GitHub Actions, identify risks, unsupported features,
             and break down its structure.

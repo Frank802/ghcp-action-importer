@@ -2,6 +2,7 @@ using System.Diagnostics;
 using GitHub.Copilot.SDK;
 using PipelineConverter.Abstractions;
 using PipelineConverter.Configuration;
+using PipelineConverter.Extensions;
 using PipelineConverter.Models;
 using PipelineConverter.Utilities;
 
@@ -60,30 +61,35 @@ public sealed class ParallelPipelineProcessor : IAsyncDisposable
     private readonly CopilotConverterService _converterService;
     private readonly CopilotValidationService _validationService;
     private readonly CopilotAnalysisService _analysisService;
+    private readonly List<CustomAgentConfig> _agents;
     private bool _isStarted;
     private bool _disposed;
 
     private ParallelPipelineProcessor(
         AppSettings settings,
-        string analyzerPrompt,
-        string converterPrompt,
-        string validatorPrompt)
+        CustomAgentConfig analyzerAgent,
+        CustomAgentConfig converterAgent,
+        CustomAgentConfig validatorAgent)
     {
         _settings = settings;
         _client = new CopilotClient();
         _sessionSemaphore = new SemaphoreSlim(settings.Copilot.MaxParallelSessions);
         _timeout = TimeSpan.FromSeconds(settings.Copilot.Timeout);
-        _analysisService = new CopilotAnalysisService(_timeout, analyzerPrompt);
-        _converterService = new CopilotConverterService(_timeout, converterPrompt);
-        _validationService = new CopilotValidationService(_timeout, validatorPrompt);
+        _agents = [analyzerAgent, converterAgent, validatorAgent];
+        _analysisService = new CopilotAnalysisService(_timeout, analyzerAgent.Name);
+        _converterService = new CopilotConverterService(_timeout, converterAgent.Name);
+        _validationService = new CopilotValidationService(_timeout, validatorAgent.Name);
     }
 
     public static async Task<ParallelPipelineProcessor> CreateAsync(AppSettings settings)
     {
-        var analyzerPrompt = await PromptLoader.LoadAsync(settings.Copilot.AnalyzerPromptFile);
-        var converterPrompt = await PromptLoader.LoadAsync(settings.Copilot.ConverterPromptFile);
-        var validatorPrompt = await PromptLoader.LoadAsync(settings.Copilot.ValidatorPromptFile);
-        return new ParallelPipelineProcessor(settings, analyzerPrompt, converterPrompt, validatorPrompt);
+        var analyzerAgent = await CustomAgentConfigExtensions.FromMarkdownFileAsync(
+            Path.Combine(AppContext.BaseDirectory, settings.Copilot.AnalyzerAgentFile));
+        var converterAgent = await CustomAgentConfigExtensions.FromMarkdownFileAsync(
+            Path.Combine(AppContext.BaseDirectory, settings.Copilot.ConverterAgentFile));
+        var validatorAgent = await CustomAgentConfigExtensions.FromMarkdownFileAsync(
+            Path.Combine(AppContext.BaseDirectory, settings.Copilot.ValidatorAgentFile));
+        return new ParallelPipelineProcessor(settings, analyzerAgent, converterAgent, validatorAgent);
     }
 
     /// <summary>
@@ -143,7 +149,8 @@ public sealed class ParallelPipelineProcessor : IAsyncDisposable
         {
             SessionId = $"pipeline-{SessionIdSanitizer.SanitizeSessionId(pipeline.Name)}-{Guid.NewGuid():N}",
             Model = _settings.Copilot.Model,
-            OnPermissionRequest = PermissionHandler.ApproveAll
+            OnPermissionRequest = PermissionHandler.ApproveAll,
+            CustomAgents = _agents
         };
         return _client.CreateSessionAsync(config, cancellationToken);
     }

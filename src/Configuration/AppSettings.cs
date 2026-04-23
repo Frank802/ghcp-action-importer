@@ -59,22 +59,22 @@ public class CopilotSettings
     public int MaxParallelSessions { get; set; } = 3;
 
     /// <summary>
-    /// Path to the prompt markdown file for pipeline conversion.
+    /// Path to the agent markdown file for pipeline conversion.
     /// Relative to the application base directory.
     /// </summary>
-    public string ConverterPromptFile { get; set; } = "Prompts/converter.md";
+    public string ConverterAgentFile { get; set; } = "Agents/converter.agent.md";
 
     /// <summary>
-    /// Path to the prompt markdown file for workflow validation.
+    /// Path to the agent markdown file for workflow validation.
     /// Relative to the application base directory.
     /// </summary>
-    public string ValidatorPromptFile { get; set; } = "Prompts/validator.md";
+    public string ValidatorAgentFile { get; set; } = "Agents/validator.agent.md";
 
     /// <summary>
-    /// Path to the prompt markdown file for pipeline analysis.
+    /// Path to the agent markdown file for pipeline analysis.
     /// Relative to the application base directory.
     /// </summary>
-    public string AnalyzerPromptFile { get; set; } = "Prompts/analyzer.md";
+    public string AnalyzerAgentFile { get; set; } = "Agents/analyzer.agent.md";
 }
 
 /// <summary>

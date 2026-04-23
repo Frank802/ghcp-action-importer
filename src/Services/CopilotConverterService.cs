@@ -11,12 +11,12 @@ namespace PipelineConverter.Services;
 public sealed class CopilotConverterService
 {
     private readonly TimeSpan _timeout;
-    private readonly string _systemPrompt;
+    private readonly string _agentName;
 
-    public CopilotConverterService(TimeSpan timeout, string systemPrompt)
+    public CopilotConverterService(TimeSpan timeout, string agentName)
     {
         _timeout = timeout;
-        _systemPrompt = systemPrompt;
+        _agentName = agentName;
     }
 
     /// <summary>
@@ -30,6 +30,7 @@ public sealed class CopilotConverterService
     {
         try
         {
+            await session.Rpc.Agent.SelectAsync(_agentName);
             var prompt = BuildConversionPrompt(pipeline, analysis);
             var response = await session.SendAndWaitAsync(new MessageOptions { Prompt = prompt }, _timeout);
             string responseContent = (string)(response?.Data?.Content ?? "");
@@ -63,10 +64,6 @@ public sealed class CopilotConverterService
         };
 
         var prompt = $"""
-            <instructions>
-            {_systemPrompt}
-            </instructions>
-
             Convert the following {sourceType} pipeline to a GitHub Actions workflow.
 
             Requirements:

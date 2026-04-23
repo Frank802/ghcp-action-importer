@@ -13,12 +13,12 @@ namespace PipelineConverter.Services;
 public sealed class CopilotValidationService
 {
     private readonly TimeSpan _timeout;
-    private readonly string _systemPrompt;
+    private readonly string _agentName;
 
-    public CopilotValidationService(TimeSpan timeout, string systemPrompt)
+    public CopilotValidationService(TimeSpan timeout, string agentName)
     {
         _timeout = timeout;
-        _systemPrompt = systemPrompt;
+        _agentName = agentName;
     }
 
     /// <summary>
@@ -41,6 +41,7 @@ public sealed class CopilotValidationService
 
         try
         {
+            await session.Rpc.Agent.SelectAsync(_agentName);
             var prompt = BuildValidationPrompt(pipeline.OriginalContent, generatedWorkflow);
             var response = await session.SendAndWaitAsync(new MessageOptions { Prompt = prompt }, _timeout);
             string responseContent = (string)(response?.Data?.Content ?? "");
@@ -203,10 +204,6 @@ public sealed class CopilotValidationService
     private string BuildValidationPrompt(string originalPipeline, string generatedWorkflow)
     {
         return $"""
-            <instructions>
-            {_systemPrompt}
-            </instructions>
-
             You are reviewing a converted workflow. Analyze the generated workflow for:
 
             1. **Correctness**: Does it accurately represent the original pipeline's logic?
