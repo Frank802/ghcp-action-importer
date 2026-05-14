@@ -1,0 +1,9 @@
+title: Pipeline to GitHub Actions Converter
+description: AI-powered conversion of GitLab CI, Azure DevOps, and Jenkins pipelines to GitHub Actions workflows using the GitHub Copilot SDK.
+remote_theme: pages-themes/cayman@v0.2.0
+plugins:
+  - jekyll-remote-theme
+  - jekyll-seo-tag
+show_downloads: false
+github:
+  repository_url: https://github.com/Frank802/ghcp-action-importer
