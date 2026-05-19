@@ -92,11 +92,6 @@ public sealed class PipelineScanner
             .Distinct();
     }
 
-    private async Task<PipelineInfo?> TryExtractPipelineAsync(string filePath, PipelineType? filter, CancellationToken cancellationToken)
-    {
-        return await TryExtractPipelineAsync(filePath, filter, rootDirectory: null, cancellationToken);
-    }
-
     private async Task<PipelineInfo?> TryExtractPipelineAsync(string filePath, PipelineType? filter, string? rootDirectory, CancellationToken cancellationToken)
     {
         try
