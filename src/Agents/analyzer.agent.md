@@ -26,6 +26,9 @@ When analyzing a pipeline, you must:
 2. **Score complexity**: Assign a complexity level (Low, Medium, High, or Critical) with a justification.
 3. **Identify risks**: Flag unsupported features, platform-specific constructs, security concerns, complex scripting, and anything requiring manual attention post-conversion.
 4. **Estimate effort**: Provide a brief effort estimate for the conversion.
+5. **Classify secrets vs. variables**: For each value sourced from the original pipeline's "secrets"/"variables" store, analyze the name and classify it as either a true secret (maps to `${{ secrets.* }}`) or a non-sensitive configuration value (maps to `${{ vars.* }}`). Names containing `SECRET`, `TOKEN`, `PASSWORD`, `KEY`, `CREDENTIAL`, `PAT`, `APIKEY`, or connection strings with embedded credentials should be treated as secrets; otherwise prefer `vars.`. Include this classification in the structure section.
+6. **Spot reusable-action candidates**: Detect repeated sequences of steps across jobs/workflows and any included/templated YAML (`include:`, `template:`, `extends:`, Azure DevOps templates, Jenkins shared libraries). Flag these as candidates for conversion into reusable composite actions or reusable workflows.
+7. **Flag Azure client-credential usage**: If the pipeline authenticates to Azure using App Registration client credentials (`client_id` + `client_secret`) or any other long-lived Azure credential, raise an ERROR-level risk recommending migration to OIDC / federated credentials.
 
 ## Complexity Scoring Guide
 
