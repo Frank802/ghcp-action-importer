@@ -1,0 +1,250 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>ghcp-action-importer — AI-powered CI pipeline migration</title>
+  <meta name="description" content="A .NET 10 console app that converts GitLab CI, Azure DevOps, and Jenkins pipelines into GitHub Actions workflows using the GitHub Copilot SDK." />
+  <meta property="og:title" content="ghcp-action-importer" />
+  <meta property="og:description" content="AI-powered migration that turns GitLab, Azure DevOps, and Jenkins pipelines into production-ready GitHub Actions workflows." />
+  <meta property="og:type" content="website" />
+  <meta property="og:url" content="https://frank802.github.io/ghcp-action-importer/" />
+  <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'%3E%3Ctext y='.9em' font-size='90'%3E⚡%3C/text%3E%3C/svg%3E" />
+  <link rel="stylesheet" href="styles.css" />
+</head>
+<body>
+  <header class="hero">
+    <nav class="nav">
+      <a class="brand" href="#top">⚡ ghcp-action-importer</a>
+      <div class="nav-links">
+        <a href="#features">Features</a>
+        <a href="#how">How it works</a>
+        <a href="#demo">Demo</a>
+        <a href="#quickstart">Quickstart</a>
+        <a href="https://github.com/Frank802/ghcp-action-importer" target="_blank" rel="noopener">GitHub ↗</a>
+      </div>
+    </nav>
+
+    <div class="hero-inner" id="top">
+      <span class="badge">Experimental · .NET 10 · MIT</span>
+      <h1>Migrate any CI pipeline to <span class="grad">GitHub Actions — with AI.</span></h1>
+      <p class="lede">
+        A .NET 10 console app that converts <strong>GitLab CI</strong>, <strong>Azure DevOps</strong>, and <strong>Jenkins</strong> pipelines into production-ready
+        <strong>GitHub Actions</strong> workflows using the <strong>GitHub Copilot SDK</strong>. Three AI phases per pipeline — analysis, conversion, validation — running in parallel sessions.
+      </p>
+      <div class="cta">
+        <a class="btn primary" href="https://github.com/Frank802/ghcp-action-importer" target="_blank" rel="noopener">View on GitHub</a>
+        <a class="btn ghost" href="#quickstart">Get started →</a>
+      </div>
+      <pre class="hero-code"><code><span class="c">$</span> dotnet run -- -i ./pipelines -o ./output -v
+<span class="dim">→ Scanning ./pipelines… 3 pipelines found</span>
+<span class="dim">→ Copilot sessions opened (claude-opus-4.6, max 3 parallel)</span>
+<span class="ok">✓ .gitlab-ci.yml          → complexity: Low      · 2 risks · 4.1s</span>
+<span class="warn">⚠ azure-pipelines.yml    → complexity: High     · 1 unsupported feature</span>
+<span class="ok">✓ Jenkinsfile             → complexity: Medium   · validated, 0 issues</span>
+<span class="dim">→ Wrote .github/workflows/ + .analysis.md + .validation.md</span></code></pre>
+    </div>
+  </header>
+
+  <section id="features" class="section">
+    <h2>Why you'll like it</h2>
+    <p class="sub">Not just a YAML transformer — a three-phase AI workflow that reasons about your pipeline, flags risks, converts intelligently, and validates the result.</p>
+    <div class="grid">
+      <div class="card">
+        <div class="icon">🔬</div>
+        <h3>Pre-conversion analysis</h3>
+        <p>Copilot rates complexity (Low/Medium/High/Critical), identifies risks, and flags unsupported features. Critical issues can block conversion.</p>
+      </div>
+      <div class="card">
+        <div class="icon">🤖</div>
+        <h3>AI-powered conversion</h3>
+        <p>Analysis findings are injected into the converter prompt so the model adds TODOs, handles edge cases, and produces idiomatic Actions YAML.</p>
+      </div>
+      <div class="card">
+        <div class="icon">✅</div>
+        <h3>Validation &amp; auto-fix</h3>
+        <p>YAML syntax, Actions structure, security best practices, and action version pinning are checked — improvements applied directly to the output.</p>
+      </div>
+      <div class="card">
+        <div class="icon">⚡</div>
+        <h3>Parallel sessions</h3>
+        <p>Process dozens of pipelines concurrently with independent Copilot sessions throttled by a configurable semaphore.</p>
+      </div>
+      <div class="card">
+        <div class="icon">📊</div>
+        <h3>Live Blazor dashboard</h3>
+        <p>Pass <code>--port</code> to launch a real-time progress UI: per-pipeline phase indicators, elapsed time, and error details.</p>
+      </div>
+      <div class="card">
+        <div class="icon">📝</div>
+        <h3>Customizable prompts</h3>
+        <p>Each phase is driven by a plain markdown prompt file. Tweak instructions for your stack without touching code.</p>
+      </div>
+      <div class="card">
+        <div class="icon">🧩</div>
+        <h3>Extensible</h3>
+        <p>Add new sources by implementing <code>IPipelineSource</code>. CircleCI, Bitbucket, TeamCity — bring your own.</p>
+      </div>
+      <div class="card">
+        <div class="icon">📑</div>
+        <h3>Audit-ready reports</h3>
+        <p>Every workflow ships with <code>.analysis.md</code> and <code>.validation.md</code> reports for review and sign-off.</p>
+      </div>
+    </div>
+  </section>
+
+  <section id="how" class="section alt">
+    <h2>How it works</h2>
+    <p class="sub">Analysis, conversion, and validation all run in the <em>same</em> Copilot session — preserving context for higher-quality output.</p>
+    <ol class="steps">
+      <li><span>1</span><div><strong>Scan</strong><p>Discover pipeline files by matching against registered <code>IPipelineSource</code> patterns.</p></div></li>
+      <li><span>2</span><div><strong>Analyze</strong><p>Copilot rates complexity, surfaces risks, and flags unsupported features.</p></div></li>
+      <li><span>3</span><div><strong>Convert</strong><p>In the same session, the converter produces idiomatic Actions YAML informed by the analysis.</p></div></li>
+      <li><span>4</span><div><strong>Validate</strong><p>Syntax, security, and action pinning are checked. Improvements are auto-applied.</p></div></li>
+      <li><span>5</span><div><strong>Report</strong><p>Save the workflow plus analysis &amp; validation reports — watch progress live in the dashboard.</p></div></li>
+    </ol>
+  </section>
+
+  <section id="sources" class="section">
+    <h2>Supported sources</h2>
+    <p class="sub">Three sources today, with a clean extension point for more.</p>
+    <div class="sources">
+      <div class="source">
+        <div class="logo">🦊</div>
+        <h4>GitLab CI/CD</h4>
+        <p>Stages, jobs, scripts, artifacts, includes</p>
+        <code>.gitlab-ci.yml</code>
+      </div>
+      <div class="source">
+        <div class="logo">🔷</div>
+        <h4>Azure DevOps</h4>
+        <p>Stages, jobs, steps, templates, variables</p>
+        <code>azure-pipelines.yml</code>
+      </div>
+      <div class="source">
+        <div class="logo">🤵</div>
+        <h4>Jenkins</h4>
+        <p>Declarative &amp; scripted pipelines, agents, stages</p>
+        <code>Jenkinsfile</code>
+      </div>
+    </div>
+  </section>
+
+  <section id="demo" class="section alt">
+    <h2>Before · After</h2>
+    <p class="sub">Real input, real Copilot output — pinned action versions, caching, and job dependencies included.</p>
+    <div class="diff">
+<pre><code><span class="dim"># .gitlab-ci.yml</span>
+stages:
+  - build
+  - test
+
+build:
+  stage: build
+  image: node:20
+  script:
+    - npm ci
+    - npm run build
+  artifacts:
+    paths:
+      - dist/
+
+test:
+  stage: test
+  script:
+    - npm test</code></pre>
+      <div class="arrow">→</div>
+<pre><code><span class="dim"># .github/workflows/ci.yml</span>
+name: CI/CD Pipeline
+
+on:
+  push:
+    branches: [main, develop]
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+      - run: npm ci
+      - run: npm run build
+      - uses: actions/upload-artifact@v4
+        with:
+          name: dist
+          path: dist/
+
+  test:
+    needs: build
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - run: npm test</code></pre>
+    </div>
+  </section>
+
+  <section id="quickstart" class="section">
+    <h2>Quickstart</h2>
+    <p class="sub">Clone, build, run. The included samples cover all three sources out of the box.</p>
+    <div class="qs">
+      <div>
+        <h3>Prerequisites</h3>
+        <ul>
+          <li>.NET 10 SDK</li>
+          <li>GitHub Copilot CLI on <code>PATH</code></li>
+          <li>Active GitHub Copilot subscription</li>
+          <li>Pipelines you want to migrate 🚀</li>
+        </ul>
+      </div>
+      <div>
+        <h3>Run it</h3>
+<pre><code>git clone https://github.com/Frank802/ghcp-action-importer.git
+cd ghcp-action-importer/src
+dotnet build
+
+<span class="dim"># convert the bundled samples</span>
+dotnet run -- -i ../samples -o ../output -v
+
+<span class="dim"># or launch the live dashboard</span>
+dotnet run -- -i ../samples -o ../output -p 5050</code></pre>
+      </div>
+    </div>
+  </section>
+
+  <section id="cli" class="section alt">
+    <h2>CLI reference</h2>
+    <p class="sub">Powerful flags, sensible defaults.</p>
+    <table class="flags">
+      <thead><tr><th>Option</th><th>Alias</th><th>Description</th></tr></thead>
+      <tbody>
+        <tr><td><code>--input</code></td><td><code>-i</code></td><td><strong>Required.</strong> Input directory containing pipeline files</td></tr>
+        <tr><td><code>--output</code></td><td><code>-o</code></td><td><strong>Required.</strong> Output directory for converted workflows</td></tr>
+        <tr><td><code>--source</code></td><td><code>-s</code></td><td>Filter: <code>GitLab</code>, <code>AzureDevOps</code>, <code>Jenkins</code></td></tr>
+        <tr><td><code>--max-sessions</code></td><td><code>-m</code></td><td>Max parallel Copilot sessions (default: 3)</td></tr>
+        <tr><td><code>--port</code></td><td><code>-p</code></td><td>Start the Blazor dashboard on the given port</td></tr>
+        <tr><td><code>--skip-validation</code></td><td></td><td>Skip validation step</td></tr>
+        <tr><td><code>--skip-analysis</code></td><td></td><td>Skip pre-conversion analysis</td></tr>
+        <tr><td><code>--verbose</code></td><td><code>-v</code></td><td>Enable verbose output</td></tr>
+      </tbody>
+    </table>
+    <p class="docs-link">
+      Full configuration, architecture, and contribution guide live in the
+      <a href="https://github.com/Frank802/ghcp-action-importer#readme" target="_blank" rel="noopener">project README</a>.
+    </p>
+  </section>
+
+  <footer class="footer">
+    <p>
+      Built with the <a href="https://github.com/github/copilot-sdk" target="_blank" rel="noopener">GitHub Copilot SDK</a> &amp;
+      <a href="https://learn.microsoft.com/aspnet/core/blazor" target="_blank" rel="noopener">Blazor Server</a>.
+      Released under the MIT License.
+    </p>
+    <p>
+      <a href="https://github.com/Frank802/ghcp-action-importer">github.com/Frank802/ghcp-action-importer</a>
+    </p>
+  </footer>
+</body>
+</html>
