@@ -101,13 +101,15 @@ description: Open-source .NET 10 tool that uses GitHub Copilot to convert GitLab
 
     <div class="diagram-card">
       <div class="mermaid">
+{% raw %}
 flowchart LR
-    Input["📁 Input<br/>.gitlab-ci.yml<br/>azure-pipelines.yml<br/>Jenkinsfile"] --> Scan["🔍 Scanner"]
-    Scan --> Pool{{"⚙️ Parallel Pool<br/>N Copilot sessions"}}
-    Pool --> S1["🔬 Analyze<br/>→ 🤖 Convert<br/>→ ✅ Validate"]
+    Input["📁 Input files<br/>.gitlab-ci.yml<br/>azure-pipelines.yml<br/>Jenkinsfile"] --> Scan["🔍 Scanner"]
+    Scan --> Pool["⚙️ Parallel Pool<br/>N Copilot sessions"]
+    Pool --> S1["🔬 Analyze<br/>🤖 Convert<br/>✅ Validate"]
     S1 --> Write["💾 Writer"]
     Write --> Output["📂 .github/workflows/<br/>workflow.yml<br/>analysis.md<br/>validation.md"]
     Pool -.-> Dash["📊 Live dashboard"]
+{% endraw %}
       </div>
     </div>
 
