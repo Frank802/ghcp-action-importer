@@ -32,6 +32,20 @@ public sealed class WorkflowWriter
         : _outputDirectory;
 
     /// <summary>
+    /// Gets the target directory for a specific pipeline, preserving any
+    /// subdirectory structure from the original input.
+    /// </summary>
+    private string GetPipelineDirectory(PipelineInfo pipeline)
+    {
+        if (string.IsNullOrEmpty(pipeline.RelativeDirectory))
+        {
+            return WorkflowsDirectory;
+        }
+
+        return Path.Combine(WorkflowsDirectory, pipeline.RelativeDirectory);
+    }
+
+    /// <summary>
     /// Writes a converted workflow to disk.
     /// </summary>
     /// <param name="result">The conversion result containing the workflow.</param>
@@ -47,11 +61,13 @@ public sealed class WorkflowWriter
             throw new InvalidOperationException("Cannot write a failed conversion result.");
         }
 
+        var targetDirectory = GetPipelineDirectory(originalPipeline);
+
         // Ensure directory exists
-        EnsureDirectoryExists();
+        EnsureDirectoryExists(targetDirectory);
 
         var fileName = result.SuggestedFileName ?? FileNameGenerator.GenerateWorkflowFileName(originalPipeline);
-        var filePath = Path.Combine(WorkflowsDirectory, fileName);
+        var filePath = Path.Combine(targetDirectory, fileName);
 
         // Handle file conflicts
         filePath = GetUniqueFilePath(filePath);
@@ -85,10 +101,11 @@ public sealed class WorkflowWriter
         AnalysisResult analysis,
         CancellationToken cancellationToken = default)
     {
-        EnsureDirectoryExists();
+        var targetDirectory = GetPipelineDirectory(pipeline);
+        EnsureDirectoryExists(targetDirectory);
 
         var fileName = FileNameGenerator.GenerateWorkflowFileName(pipeline);
-        var basePath = Path.Combine(WorkflowsDirectory, fileName);
+        var basePath = Path.Combine(targetDirectory, fileName);
         var reportPath = Path.ChangeExtension(basePath, ".analysis.md");
 
         var content = BuildAnalysisReport(pipeline, analysis);
@@ -114,11 +131,11 @@ public sealed class WorkflowWriter
         return validatedPath;
     }
 
-    private void EnsureDirectoryExists()
+    private static void EnsureDirectoryExists(string directory)
     {
-        if (!Directory.Exists(WorkflowsDirectory))
+        if (!Directory.Exists(directory))
         {
-            Directory.CreateDirectory(WorkflowsDirectory);
+            Directory.CreateDirectory(directory);
         }
     }
 

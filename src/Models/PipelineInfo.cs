@@ -28,6 +28,13 @@ public record PipelineInfo
     public required string FilePath { get; init; }
 
     /// <summary>
+    /// Gets the directory of the pipeline file relative to the input scan root.
+    /// Empty when the file is at the scan root. Used to recreate the input
+    /// directory structure under the output directory.
+    /// </summary>
+    public string RelativeDirectory { get; init; } = string.Empty;
+
+    /// <summary>
     /// Gets additional metadata extracted from the pipeline (optional).
     /// </summary>
     public IReadOnlyDictionary<string, string>? Metadata { get; init; }

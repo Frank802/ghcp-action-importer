@@ -34,6 +34,9 @@ public sealed class PipelineScanner
         var searchOption = recursive ? SearchOption.AllDirectories : SearchOption.TopDirectoryOnly;
         var discoveredPipelines = new List<PipelineInfo>();
 
+        // Normalize the root so relative paths are computed consistently.
+        var rootDirectory = Path.GetFullPath(directory);
+
         // Build list of file patterns to search
         var patterns = GetSearchPatterns(filter);
 
@@ -48,7 +51,7 @@ public sealed class PipelineScanner
                 if (!discoveredPaths.Add(file))
                     continue;
 
-                var pipeline = await TryExtractPipelineAsync(file, filter, cancellationToken);
+                var pipeline = await TryExtractPipelineAsync(file, filter, rootDirectory, cancellationToken);
                 if (pipeline is not null)
                 {
                     discoveredPipelines.Add(pipeline);
@@ -65,7 +68,7 @@ public sealed class PipelineScanner
                 if (!discoveredPaths.Add(file))
                     continue;
 
-                var pipeline = await TryExtractPipelineAsync(file, filter, cancellationToken);
+                var pipeline = await TryExtractPipelineAsync(file, filter, rootDirectory, cancellationToken);
                 if (pipeline is not null)
                 {
                     discoveredPipelines.Add(pipeline);
@@ -91,6 +94,11 @@ public sealed class PipelineScanner
 
     private async Task<PipelineInfo?> TryExtractPipelineAsync(string filePath, PipelineType? filter, CancellationToken cancellationToken)
     {
+        return await TryExtractPipelineAsync(filePath, filter, rootDirectory: null, cancellationToken);
+    }
+
+    private async Task<PipelineInfo?> TryExtractPipelineAsync(string filePath, PipelineType? filter, string? rootDirectory, CancellationToken cancellationToken)
+    {
         try
         {
             var content = await File.ReadAllTextAsync(filePath, cancellationToken);
@@ -104,7 +112,16 @@ public sealed class PipelineScanner
             {
                 if (source.CanHandle(filePath, content))
                 {
-                    return source.ExtractInfo(filePath, content);
+                    var info = source.ExtractInfo(filePath, content);
+                    if (!string.IsNullOrEmpty(rootDirectory))
+                    {
+                        var relativeDirectory = GetRelativeDirectory(rootDirectory, filePath);
+                        if (!string.IsNullOrEmpty(relativeDirectory))
+                        {
+                            info = info with { RelativeDirectory = relativeDirectory };
+                        }
+                    }
+                    return info;
                 }
             }
 
@@ -116,6 +133,24 @@ public sealed class PipelineScanner
             _onFileSkipped?.Invoke(filePath, ex);
             return null;
         }
+    }
+
+    private static string GetRelativeDirectory(string rootDirectory, string filePath)
+    {
+        var fileDirectory = Path.GetDirectoryName(filePath);
+        if (string.IsNullOrEmpty(fileDirectory))
+        {
+            return string.Empty;
+        }
+
+        var relative = Path.GetRelativePath(rootDirectory, fileDirectory);
+        if (string.IsNullOrEmpty(relative) || relative == ".")
+        {
+            return string.Empty;
+        }
+
+        // Normalize separators so output paths are consistent across platforms.
+        return relative.Replace('\\', '/');
     }
 
     /// <summary>
